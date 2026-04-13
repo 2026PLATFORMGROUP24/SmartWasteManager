@@ -4,7 +4,7 @@ package com.platform.smartwastemanager.core.navigation
  * All navigation route strings used in the NavHost.
  * Using an object with constants prevents typos when navigating between screens.
  */
-object NavRoutes {
+object NavRoutesOLD {
     // ---- Auth screens ----
     const val LOGIN = "auth/login"
     const val SIGN_UP = "auth/signup"
