@@ -22,23 +22,27 @@ class AuthViewModel(
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     /**
-     * The currently signed-in user.
-     * Null if nobody is signed in.
-     * Set after a successful signIn() or signUp() call.
-     * Also restored on app start if a session already exists.
+     * The currently signed-in user. Null if nobody is signed in.
+     * Populated after signIn(), signUp(), or a restored session.
      */
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
+    /**
+     * Optional callback invoked after any successful authentication event
+     * (sign in or sign up). Used by MainActivity to trigger a schedule reload
+     * on the HomeViewModel now that a valid auth token exists.
+     */
+    var onAuthSuccess: (() -> Unit)? = null
+
     init {
-        // If the user was already signed in when the app started (session persists),
-        // restore their profile so the role is available immediately.
         restoreSessionIfNeeded()
     }
 
     /**
-     * If Firebase has a persisted session, fetch the user's Firestore profile
-     * so [currentUser] is populated before any screen loads.
+     * If Firebase has a persisted session, restore the user profile so
+     * [currentUser] is populated immediately without requiring a new login.
+     * Also triggers onAuthSuccess so the HomeViewModel reloads schedules.
      */
     private fun restoreSessionIfNeeded() {
         val uid = authRepository.getCurrentUserUid() ?: return
@@ -46,6 +50,8 @@ class AuthViewModel(
             val result = authRepository.fetchUserProfile(uid)
             if (result.isSuccess) {
                 _currentUser.value = result.getOrNull()
+                // Notify that auth is ready — triggers schedule reload
+                onAuthSuccess?.invoke()
             }
         }
     }
@@ -61,8 +67,12 @@ class AuthViewModel(
             if (result.isSuccess) {
                 _currentUser.value = result.getOrNull()
                 _uiState.value = AuthUiState.Success(result.getOrNull()!!)
+                // Auth token is now valid — reload schedules
+                onAuthSuccess?.invoke()
             } else {
-                _uiState.value = AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign in failed")
+                _uiState.value = AuthUiState.Error(
+                    result.exceptionOrNull()?.message ?: "Sign in failed"
+                )
             }
         }
     }
@@ -82,8 +92,12 @@ class AuthViewModel(
             if (result.isSuccess) {
                 _currentUser.value = result.getOrNull()
                 _uiState.value = AuthUiState.Success(result.getOrNull()!!)
+                // Auth token is now valid — reload schedules
+                onAuthSuccess?.invoke()
             } else {
-                _uiState.value = AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign up failed")
+                _uiState.value = AuthUiState.Error(
+                    result.exceptionOrNull()?.message ?: "Sign up failed"
+                )
             }
         }
     }
@@ -97,7 +111,9 @@ class AuthViewModel(
             _uiState.value = AuthUiState.Loading
             val result = authRepository.sendPasswordResetEmail(email.trim())
             _uiState.value = if (result.isSuccess) AuthUiState.ResetEmailSent
-            else AuthUiState.Error(result.exceptionOrNull()?.message ?: "Failed to send reset email")
+            else AuthUiState.Error(
+                result.exceptionOrNull()?.message ?: "Failed to send reset email"
+            )
         }
     }
 

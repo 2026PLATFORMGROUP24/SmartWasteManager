@@ -49,7 +49,7 @@ fun SmartWasteManagerAppContent() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    // ViewModels created here so the top bar can access them too
+    // Create ViewModels once at Activity level — passed down, never recreated
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(app.container.authRepository)
     )
@@ -59,6 +59,13 @@ fun SmartWasteManagerAppContent() {
             app.container.viewToggleRepository
         )
     )
+
+    // Wire the auth success callback:
+    // Whenever auth completes (login, signup, or restored session),
+    // restart the Firestore listener now that a valid token exists.
+    authViewModel.onAuthSuccess = {
+        homeViewModel.loadSchedules()
+    }
 
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriver = currentUser?.role == UserRole.DRIVER
@@ -74,12 +81,12 @@ fun SmartWasteManagerAppContent() {
     val isOnAuthScreen = currentDestination?.route in authRoutes
 
     val screenTitle = when (currentDestination?.route) {
-        Routes.HOME              -> "Home"
-        Routes.MANAGE_SCHEDULES  -> "Manage Schedules"
-        Routes.REPORT            -> "Report Waste"
-        Routes.MAP               -> "Map"
-        Routes.GUIDES            -> "Recycling Guides"
-        else                     -> "Smart Waste Manager"
+        Routes.HOME             -> "Home"
+        Routes.MANAGE_SCHEDULES -> "Manage Schedules"
+        Routes.REPORT           -> "Report Waste"
+        Routes.MAP              -> "Map"
+        Routes.GUIDES           -> "Recycling Guides"
+        else                    -> "Smart Waste Manager"
     }
 
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -112,7 +119,6 @@ fun SmartWasteManagerAppContent() {
                 TopAppBar(
                     title = { Text(screenTitle) },
                     actions = {
-                        // ---- Driver view toggle (only visible to drivers) ----
                         if (isDriver) {
                             IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                 Icon(
@@ -123,7 +129,6 @@ fun SmartWasteManagerAppContent() {
                                 )
                             }
                         }
-                        // ---- Logout button ----
                         IconButton(onClick = { showLogoutDialog = true }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Logout,
@@ -167,9 +172,8 @@ fun SmartWasteManagerAppContent() {
         AppNavHost(
             navController = navController,
             startDestination = startDestination,
-            authRepository = app.container.authRepository,
-            scheduleRepository = app.container.scheduleRepository,
-            viewToggleRepository = app.container.viewToggleRepository,
+            authViewModel = authViewModel,
+            homeViewModel = homeViewModel,
             modifier = Modifier.padding(innerPadding)
         )
     }
