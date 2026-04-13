@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -18,51 +20,100 @@ import com.platform.smartwastemanager.core.navigation.BottomNavItem
 import com.platform.smartwastemanager.core.navigation.Routes
 import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
 
-/**
- * The single Activity that hosts the entire app.
- */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         setContent {
             SmartWasteManagerTheme {
-                // Renamed to avoid clash with the Application class SmartWasteManagerApp
                 SmartWasteManagerAppContent()
             }
         }
     }
 }
 
-/**
- * The root composable of the app.
- * Named "AppContent" to avoid a naming clash with the Application class
- * which is also called SmartWasteManagerApp.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartWasteManagerAppContent() {
-    // Access the AppContainer from the Application class
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext
             as SmartWasteManagerApp
 
     val navController = rememberNavController()
-
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    // Decide the first screen to show based on auth state
     val startDestination = if (app.container.authRepository.isUserSignedIn()) {
         Routes.HOME
     } else {
         Routes.LOGIN
     }
 
-    // The auth routes — bottom bar should NOT be visible on these screens
+    // Routes where the top bar and bottom bar should be hidden
     val authRoutes = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
     val isOnAuthScreen = currentDestination?.route in authRoutes
 
+    // Map each route to a human-readable title for the top bar
+    val screenTitle = when (currentDestination?.route) {
+        Routes.HOME    -> "Home"
+        Routes.REPORT  -> "Report Waste"
+        Routes.MAP     -> "Map"
+        Routes.GUIDES  -> "Recycling Guides"
+        else           -> "Smart Waste Manager"
+    }
+
+    // Show a confirmation dialog before logging out
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Log Out") },
+            text = { Text("Are you sure you want to log out?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutDialog = false
+                        app.container.authRepository.signOut()
+                        // Navigate to Login and clear the entire back stack
+                        navController.navigate(Routes.LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                ) {
+                    Text("Log Out", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
+        topBar = {
+            // Only show the top bar on main app screens, not on auth screens
+            if (!isOnAuthScreen) {
+                TopAppBar(
+                    title = { Text(screenTitle) },
+                    actions = {
+                        // Logout button in the top-right corner
+                        IconButton(onClick = { showLogoutDialog = true }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Log out"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
+        },
         bottomBar = {
             if (!isOnAuthScreen) {
                 NavigationBar {
