@@ -4,7 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Person
@@ -12,7 +13,10 @@ import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -49,7 +53,7 @@ fun SmartWasteManagerAppContent() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    // Create ViewModels once at Activity level — passed down, never recreated
+    // ViewModels created ONCE at Activity level — never inside NavHost
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(app.container.authRepository)
     )
@@ -60,16 +64,15 @@ fun SmartWasteManagerAppContent() {
         )
     )
 
-    // Wire the auth success callback:
-    // Whenever auth completes (login, signup, or restored session),
-    // restart the Firestore listener now that a valid token exists.
-    authViewModel.onAuthSuccess = {
-        homeViewModel.loadSchedules()
-    }
+    // Reload schedules after any auth event so data is fresh immediately
+    authViewModel.onAuthSuccess = { homeViewModel.loadSchedules() }
 
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriver = currentUser?.role == UserRole.DRIVER
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
+
+    // True when this driver has switched to the user/resident view
+    val isViewingAsUser = isDriver && !isDriverViewActive
 
     val startDestination = if (app.container.authRepository.isUserSignedIn()) {
         Routes.HOME
@@ -116,32 +119,66 @@ fun SmartWasteManagerAppContent() {
     Scaffold(
         topBar = {
             if (!isOnAuthScreen) {
-                TopAppBar(
-                    title = { Text(screenTitle) },
-                    actions = {
-                        if (isDriver) {
-                            IconButton(onClick = { homeViewModel.toggleDriverView() }) {
+                Column {
+                    TopAppBar(
+                        title = { Text(screenTitle) },
+                        actions = {
+                            // Toggle button — drivers only
+                            if (isDriver) {
+                                IconButton(onClick = { homeViewModel.toggleDriverView() }) {
+                                    Icon(
+                                        imageVector = if (isDriverViewActive) Icons.Default.PersonOff
+                                        else Icons.Default.Person,
+                                        contentDescription = if (isDriverViewActive)
+                                            "Switch to User View" else "Switch to Driver View"
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { showLogoutDialog = true }) {
                                 Icon(
-                                    imageVector = if (isDriverViewActive) Icons.Default.PersonOff
-                                    else Icons.Default.Person,
-                                    contentDescription = if (isDriverViewActive) "Switch to User View"
-                                    else "Switch to Driver View"
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = "Log out"
                                 )
                             }
-                        }
-                        IconButton(onClick = { showLogoutDialog = true }) {
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+
+                    // ---- Global "Viewing as User" banner ----
+                    // Shown below the top bar on EVERY screen when a driver is in User View.
+                    // This replaces the per-screen banners that were previously on HomeScreen.
+                    if (isViewingAsUser) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "👀  Viewing as User  —  tap ",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Logout,
-                                contentDescription = "Log out"
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "  to switch back",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
+                    }
+                }
             }
         },
         bottomBar = {

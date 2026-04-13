@@ -13,9 +13,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
-/**
- * Manages UI state for the Home screen and Schedule Management screen.
- */
 class HomeViewModel(
     private val scheduleRepository: ScheduleRepository,
     private val viewToggleRepository: ViewToggleRepository
@@ -30,7 +27,6 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Idle)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    // Tracks the current schedule-loading job so we can cancel and restart it
     private var schedulesJob: Job? = null
 
     init {
@@ -39,36 +35,34 @@ class HomeViewModel(
     }
 
     /**
-     * Starts (or restarts) the real-time Firestore schedule listener.
-     *
-     * Cancelling the old job first ensures we never have two simultaneous
-     * listeners running, which would cause duplicate or stale data.
-     *
-     * Call this:
-     * - Automatically on init (covers the "already signed in" case)
-     * - Explicitly after a successful login (covers the "just logged in" case)
+     * Starts (or restarts) the Firestore schedule listener.
+     * Called on init AND after successful login (see AuthViewModel.onAuthSuccess).
      */
     fun loadSchedules() {
-        // Cancel any previous listener before starting a new one
         schedulesJob?.cancel()
-
         schedulesJob = viewModelScope.launch {
             try {
                 scheduleRepository.getSchedules()
-                    .catch { e ->
-                        _uiState.value = HomeUiState.Error(
-                            "Could not load schedules. Check your connection."
-                        )
+                    .catch { _ ->
+                        if (_schedules.value.isEmpty()) {
+                            _uiState.value = HomeUiState.Error(
+                                "Could not load schedules. Check your connection."
+                            )
+                        }
                         emit(emptyList())
                     }
                     .collect { list ->
                         _schedules.value = list
+                        if (list.isNotEmpty() && _uiState.value is HomeUiState.Error) {
+                            _uiState.value = HomeUiState.Idle
+                        }
                     }
             } catch (e: Exception) {
-                _schedules.value = emptyList()
-                _uiState.value = HomeUiState.Error(
-                    "Could not load schedules. Check your connection."
-                )
+                if (_schedules.value.isEmpty()) {
+                    _uiState.value = HomeUiState.Error(
+                        "Could not load schedules. Check your connection."
+                    )
+                }
             }
         }
     }
@@ -91,14 +85,21 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Creates a new schedule entry.
+     *
+     * @param wasteCategories   List of selected waste categories (must not be empty).
+     * @param collectionTimeRange Optional display string e.g. "07:00 – 12:00".
+     */
     fun createSchedule(
         dayOfWeek: String,
-        wasteCategory: String,
+        wasteCategories: List<String>,
+        collectionTimeRange: String?,
         linkedGuideId: String?,
         driverUid: String
     ) {
-        if (dayOfWeek.isBlank() || wasteCategory.isBlank()) {
-            _uiState.value = HomeUiState.Error("Please select a day and waste category")
+        if (dayOfWeek.isBlank() || wasteCategories.isEmpty()) {
+            _uiState.value = HomeUiState.Error("Please select a day and at least one waste category")
             return
         }
         viewModelScope.launch {
@@ -106,7 +107,8 @@ class HomeViewModel(
             val result = scheduleRepository.createSchedule(
                 CollectionDay(
                     dayOfWeek = dayOfWeek,
-                    wasteCategory = wasteCategory,
+                    wasteCategories = wasteCategories,
+                    collectionTimeRange = collectionTimeRange?.ifBlank { null },
                     linkedGuideId = linkedGuideId?.ifBlank { null },
                     createdBy = driverUid
                 )
@@ -122,7 +124,10 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
             val result = scheduleRepository.updateSchedule(
-                collectionDay.copy(linkedGuideId = collectionDay.linkedGuideId?.ifBlank { null })
+                collectionDay.copy(
+                    linkedGuideId = collectionDay.linkedGuideId?.ifBlank { null },
+                    collectionTimeRange = collectionDay.collectionTimeRange?.ifBlank { null }
+                )
             )
             _uiState.value = if (result.isSuccess)
                 HomeUiState.Success("Schedule updated successfully")

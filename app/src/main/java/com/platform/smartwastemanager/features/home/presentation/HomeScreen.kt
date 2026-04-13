@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,13 +18,11 @@ import com.platform.smartwastemanager.features.home.domain.CollectionDay
 /**
  * Home screen — shows the weekly collection schedule.
  *
- * User view:    Read-only list of schedule cards.
- * Driver view:  Same list + a "Manage Schedules" FAB to navigate to the CRUD screen.
+ * User view:   Read-only list of schedule cards.
+ * Driver view: Same list + a FAB to navigate to the schedule management screen.
  *
- * @param viewModel         The HomeViewModel (shared with ScheduleManagementScreen).
- * @param isDriver          True if the signed-in user has the DRIVER role.
- * @param onNavigateToManage Called when the driver taps the FAB — go to management screen.
- * @param onNavigateToGuide  Called when user taps a card that has a linked guide.
+ * The "Viewing as User" banner is shown globally in the top app bar (MainActivity),
+ * NOT here — so it is visible on every screen in the app.
  */
 @Composable
 fun HomeScreen(
@@ -37,10 +35,8 @@ fun HomeScreen(
     val isDriverViewActive by viewModel.isDriverViewActive.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Snackbar host to show success/error messages at the bottom of the screen
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Show snackbar when there's a success or error message
     LaunchedEffect(uiState) {
         when (uiState) {
             is HomeUiState.Success -> {
@@ -58,14 +54,14 @@ fun HomeScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            // Only drivers in driver view see the "Manage Schedules" button
+            // FAB only visible to drivers in driver view
             if (isDriver && isDriverViewActive) {
                 FloatingActionButton(
                     onClick = onNavigateToManage,
                     containerColor = MaterialTheme.colorScheme.primary
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = "Manage Schedules",
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
@@ -79,8 +75,6 @@ fun HomeScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-
-            // ---- Header ----
             Text(
                 text = "Collection Schedule",
                 style = MaterialTheme.typography.headlineSmall,
@@ -88,27 +82,6 @@ fun HomeScreen(
                 modifier = Modifier.padding(vertical = 16.dp)
             )
 
-            // ---- Driver view banner ----
-            // Shown when a driver has switched to User View so they know
-            if (isDriver && !isDriverViewActive) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                ) {
-                    Text(
-                        text = "👀 You are viewing as a User",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-
-            // ---- Schedule list or empty state ----
             if (schedules.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -128,17 +101,7 @@ fun HomeScreen(
                     items(schedules) { schedule ->
                         ScheduleCard(
                             schedule = schedule,
-                            onClick = {
-                                if (schedule.linkedGuideId != null) {
-                                    onNavigateToGuide(schedule.linkedGuideId)
-                                } else {
-                                    // The snackbar will show via a state update is not needed here
-                                    // We'll handle it inline with a dialog shown from the card
-                                }
-                            },
-                            onNoGuide = {
-                                // Show a snackbar message when no guide is linked
-                            }
+                            onNavigateToGuide = onNavigateToGuide
                         )
                     }
                 }
@@ -148,28 +111,31 @@ fun HomeScreen(
 }
 
 /**
- * A single card in the schedule list.
- * Shows the day of week and waste category.
- * Tapping navigates to the linked guide or shows a "no guide" message.
+ * A single schedule card.
+ *
+ * Always shows an arrow + "View Guide" label on the right side so users
+ * know the card is tappable. If no guide is linked, tapping shows a dialog.
+ *
+ * Shows all waste categories as small chips.
+ * Shows the collection time range if one has been set by the driver.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScheduleCard(
     schedule: CollectionDay,
-    onClick: () -> Unit,
-    onNoGuide: () -> Unit
+    onNavigateToGuide: (String) -> Unit
 ) {
-    // Local state to show the "no guide" dialog
     var showNoGuideDialog by remember { mutableStateOf(false) }
 
     if (showNoGuideDialog) {
         AlertDialog(
             onDismissRequest = { showNoGuideDialog = false },
             title = { Text("No Guide Available") },
-            text = { Text("There is no recycling guide linked to ${schedule.dayOfWeek}'s collection yet.") },
+            text = {
+                Text("There is no recycling guide linked to ${schedule.dayOfWeek}'s collection yet.")
+            },
             confirmButton = {
-                TextButton(onClick = { showNoGuideDialog = false }) {
-                    Text("OK")
-                }
+                TextButton(onClick = { showNoGuideDialog = false }) { Text("OK") }
             }
         )
     }
@@ -179,7 +145,7 @@ fun ScheduleCard(
             .fillMaxWidth()
             .clickable {
                 if (schedule.linkedGuideId != null) {
-                    onClick()
+                    onNavigateToGuide(schedule.linkedGuideId)
                 } else {
                     showNoGuideDialog = true
                 }
@@ -196,26 +162,69 @@ fun ScheduleCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            // ---- Left side: day, time range, category chips ----
+            Column(modifier = Modifier.weight(1f)) {
+                // Day name
                 Text(
                     text = schedule.dayOfWeek,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-                Text(
-                    text = schedule.wasteCategory,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+
+                // Optional time range (e.g. "07:00 – 12:00")
+                if (!schedule.collectionTimeRange.isNullOrBlank()) {
+                    Text(
+                        text = "🕐 ${schedule.collectionTimeRange}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                // Waste category chips — shown for every category selected
+                if (schedule.wasteCategories.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        schedule.wasteCategories.forEach { category ->
+                            SuggestionChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        text = category,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
             }
 
-            // Show a subtle indicator if this card links to a guide
-            if (schedule.linkedGuideId != null) {
+            // ---- Right side: always-visible "View Guide" arrow hint ----
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "View Guide",
+                    tint = if (schedule.linkedGuideId != null)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f),
+                    modifier = Modifier.size(20.dp)
+                )
                 Text(
-                    text = "📖 View Guide",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "View Guide",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (schedule.linkedGuideId != null)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
                 )
             }
         }
