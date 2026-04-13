@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "1067069609855",
+    "project_id": "platformgroup24",
+    "storage_bucket": "platformgroup24.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1067069609855:android:6f2231fe6183b00cd7ac4a",
+        "android_client_info": {
+          "package_name": "com.grp24.smartwaste"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3n2zVvsweAusKQ2Jsbv7jqh8YAHx9I3c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1067069609855:android:ef3fcd6cd7c5650cd7ac4a",
+        "android_client_info": {
+          "package_name": "com.platform.grp24"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3n2zVvsweAusKQ2Jsbv7jqh8YAHx9I3c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1067069609855:android:f30d0870eacac471d7ac4a",
+        "android_client_info": {
+          "package_name": "com.platform.smartwastemanager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3n2zVvsweAusKQ2Jsbv7jqh8YAHx9I3c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
