@@ -8,39 +8,27 @@ import com.platform.smartwastemanager.core.di.AppContainer
 import com.platform.smartwastemanager.core.util.Constants
 
 /**
- * Custom Application class.
- *
- * This is the entry point of the app BEFORE any Activity starts.
- * It is declared in AndroidManifest.xml with android:name=".SmartWasteManagerApp".
+ * Custom Application class — the first thing that runs when the app starts.
+ * Declared in AndroidManifest.xml with android:name=".SmartWasteManagerApp".
  *
  * Responsibilities:
- * - Creates and holds the AppContainer (manual DI) for the app's lifetime.
- * - Sets up the notification channel required for local notifications on Android 8.0+.
+ * - Creates the AppContainer (manual DI) for the app's lifetime.
+ * - Sets up the notification channel for local notifications on Android 8.0+.
  */
 class SmartWasteManagerApp : Application() {
 
-    /**
-     * The single AppContainer instance.
-     * Access it anywhere via: (applicationContext as SmartWasteManagerApp).container
-     */
     lateinit var container: AppContainer
         private set
 
     override fun onCreate() {
         super.onCreate()
 
-        // Initialise the dependency injection container
-        container = AppContainer()
+        // Pass 'this' (the Application context) so AppContainer can initialise DataStore
+        container = AppContainer(this)
 
-        // Create the notification channel for local notifications (Android 8.0+)
         createNotificationChannel()
     }
 
-    /**
-     * Creates the notification channel required for showing local notifications.
-     * Notification channels were introduced in Android 8.0 (API 26).
-     * Without a channel, notifications will be silently dropped on API 26+.
-     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(

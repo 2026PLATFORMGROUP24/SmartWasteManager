@@ -11,49 +11,63 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Holds all the UI state for the authentication screens (Login, SignUp, ResetPassword).
- *
- * The screens observe [uiState] and react to changes automatically.
- * The screens call functions like [signIn], [signUp], [sendPasswordReset].
+ * Manages UI state for all authentication screens.
+ * Also holds [currentUser] so the rest of the app can read the signed-in user's role.
  */
 class AuthViewModel(
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
-    // The single source of truth for what the auth screens should display
     private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Idle)
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     /**
-     * Attempts to sign the user in.
-     * Updates uiState to Loading → Success or Error.
+     * The currently signed-in user.
+     * Null if nobody is signed in.
+     * Set after a successful signIn() or signUp() call.
+     * Also restored on app start if a session already exists.
      */
-    fun signIn(email: String, password: String) {
-        // Basic input validation before hitting Firebase
-        if (email.isBlank() || password.isBlank()) {
-            _uiState.value = AuthUiState.Error("Please fill in all fields")
-            return
-        }
+    private val _currentUser = MutableStateFlow<User?>(null)
+    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
+    init {
+        // If the user was already signed in when the app started (session persists),
+        // restore their profile so the role is available immediately.
+        restoreSessionIfNeeded()
+    }
+
+    /**
+     * If Firebase has a persisted session, fetch the user's Firestore profile
+     * so [currentUser] is populated before any screen loads.
+     */
+    private fun restoreSessionIfNeeded() {
+        val uid = authRepository.getCurrentUserUid() ?: return
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-
-            val result = authRepository.signIn(email.trim(), password)
-
-            _uiState.value = if (result.isSuccess) {
-                AuthUiState.Success(result.getOrNull()!!)
-            } else {
-                AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign in failed")
+            val result = authRepository.fetchUserProfile(uid)
+            if (result.isSuccess) {
+                _currentUser.value = result.getOrNull()
             }
         }
     }
 
-    /**
-     * Attempts to create a new account.
-     * Updates uiState to Loading → Success or Error.
-     */
+    fun signIn(email: String, password: String) {
+        if (email.isBlank() || password.isBlank()) {
+            _uiState.value = AuthUiState.Error("Please fill in all fields")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = AuthUiState.Loading
+            val result = authRepository.signIn(email.trim(), password)
+            if (result.isSuccess) {
+                _currentUser.value = result.getOrNull()
+                _uiState.value = AuthUiState.Success(result.getOrNull()!!)
+            } else {
+                _uiState.value = AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign in failed")
+            }
+        }
+    }
+
     fun signUp(email: String, password: String, username: String, role: String) {
-        // Basic input validation
         if (email.isBlank() || password.isBlank() || username.isBlank()) {
             _uiState.value = AuthUiState.Error("Please fill in all fields")
             return
@@ -62,63 +76,41 @@ class AuthViewModel(
             _uiState.value = AuthUiState.Error("Password must be at least 6 characters")
             return
         }
-
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
-
             val result = authRepository.signUp(email.trim(), password, username.trim(), role)
-
-            _uiState.value = if (result.isSuccess) {
-                AuthUiState.Success(result.getOrNull()!!)
+            if (result.isSuccess) {
+                _currentUser.value = result.getOrNull()
+                _uiState.value = AuthUiState.Success(result.getOrNull()!!)
             } else {
-                AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign up failed")
+                _uiState.value = AuthUiState.Error(result.exceptionOrNull()?.message ?: "Sign up failed")
             }
         }
     }
 
-    /**
-     * Sends a password reset email.
-     * Updates uiState to Loading → ResetEmailSent or Error.
-     */
     fun sendPasswordReset(email: String) {
         if (email.isBlank()) {
             _uiState.value = AuthUiState.Error("Please enter your email address")
             return
         }
-
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
-
             val result = authRepository.sendPasswordResetEmail(email.trim())
-
-            _uiState.value = if (result.isSuccess) {
-                AuthUiState.ResetEmailSent
-            } else {
-                AuthUiState.Error(result.exceptionOrNull()?.message ?: "Failed to send reset email")
-            }
+            _uiState.value = if (result.isSuccess) AuthUiState.ResetEmailSent
+            else AuthUiState.Error(result.exceptionOrNull()?.message ?: "Failed to send reset email")
         }
     }
 
-    /**
-     * Signs the user out and resets the UI state back to Idle.
-     */
     fun signOut() {
         authRepository.signOut()
+        _currentUser.value = null
         _uiState.value = AuthUiState.Idle
     }
 
-    /**
-     * Resets the UI state back to Idle.
-     * Call this when navigating away from a screen to clear old error messages.
-     */
     fun resetState() {
         _uiState.value = AuthUiState.Idle
     }
 
-    /**
-     * Factory that creates an AuthViewModel using the AuthRepository from AppContainer.
-     * Used in MainActivity or any screen that needs this ViewModel.
-     */
     companion object {
         fun factory(authRepository: AuthRepository): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
@@ -131,23 +123,10 @@ class AuthViewModel(
     }
 }
 
-/**
- * Represents every possible state the auth UI can be in.
- * Using a sealed class means we can never forget to handle a state in the UI.
- */
 sealed class AuthUiState {
-    /** Nothing is happening — the form is just sitting there waiting for input. */
     object Idle : AuthUiState()
-
-    /** A Firebase operation is in progress — show a loading spinner. */
     object Loading : AuthUiState()
-
-    /** Sign in or sign up was successful. Navigate away from the auth screens. */
     data class Success(val user: User) : AuthUiState()
-
-    /** Something went wrong. Show the message to the user. */
     data class Error(val message: String) : AuthUiState()
-
-    /** Password reset email was sent successfully. */
     object ResetEmailSent : AuthUiState()
 }

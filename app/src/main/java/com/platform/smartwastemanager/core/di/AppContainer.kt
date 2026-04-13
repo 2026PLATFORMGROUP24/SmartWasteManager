@@ -1,5 +1,7 @@
 package com.platform.smartwastemanager.core.di
 
+import android.content.Context
+import com.platform.smartwastemanager.core.util.ViewToggleRepository
 import com.platform.smartwastemanager.features.auth.data.AuthRepository
 import com.platform.smartwastemanager.features.guide.data.GuideRepository
 import com.platform.smartwastemanager.features.home.data.ScheduleRepository
@@ -8,26 +10,22 @@ import com.platform.smartwastemanager.features.report.data.ReportRepository
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
 
 /**
- * AppContainer is the heart of our manual dependency injection system.
+ * AppContainer holds every repository for the lifetime of the app.
+ * It is created once inside SmartWasteManagerApp and accessed via
+ * (applicationContext as SmartWasteManagerApp).container
  *
- * Instead of using Hilt or Dagger, we create ONE instance of each repository here.
- * This instance lives for the entire lifetime of the app (as long as the Application is alive).
- *
- * ViewModels get their repositories through a ViewModelProvider.Factory that
- * reads from this container — see each feature's ViewModel for examples.
- *
- * To add a new repository:
- * 1. Create the repository class in its feature/data/ package.
- * 2. Add a val property here.
- * 3. Use it in the corresponding ViewModel factory.
+ * We now require a Context so that ViewToggleRepository can access DataStore.
  */
-class AppContainer {
+class AppContainer(context: Context) {
 
     // ---- Auth ----
     val authRepository = AuthRepository()
 
     // ---- Home / Schedules ----
     val scheduleRepository = ScheduleRepository()
+
+    // ---- Driver/User view toggle (persisted via DataStore) ----
+    val viewToggleRepository = ViewToggleRepository(context)
 
     // ---- Waste Reports ----
     val reportRepository = ReportRepository()

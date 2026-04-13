@@ -7,10 +7,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -19,6 +23,9 @@ import com.platform.smartwastemanager.core.navigation.AppNavHost
 import com.platform.smartwastemanager.core.navigation.BottomNavItem
 import com.platform.smartwastemanager.core.navigation.Routes
 import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
+import com.platform.smartwastemanager.features.auth.domain.UserRole
+import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
+import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,26 +49,39 @@ fun SmartWasteManagerAppContent() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
+    // ViewModels created here so the top bar can access them too
+    val authViewModel: AuthViewModel = viewModel(
+        factory = AuthViewModel.factory(app.container.authRepository)
+    )
+    val homeViewModel: HomeViewModel = viewModel(
+        factory = HomeViewModel.factory(
+            app.container.scheduleRepository,
+            app.container.viewToggleRepository
+        )
+    )
+
+    val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val isDriver = currentUser?.role == UserRole.DRIVER
+    val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
+
     val startDestination = if (app.container.authRepository.isUserSignedIn()) {
         Routes.HOME
     } else {
         Routes.LOGIN
     }
 
-    // Routes where the top bar and bottom bar should be hidden
     val authRoutes = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
     val isOnAuthScreen = currentDestination?.route in authRoutes
 
-    // Map each route to a human-readable title for the top bar
     val screenTitle = when (currentDestination?.route) {
-        Routes.HOME    -> "Home"
-        Routes.REPORT  -> "Report Waste"
-        Routes.MAP     -> "Map"
-        Routes.GUIDES  -> "Recycling Guides"
-        else           -> "Smart Waste Manager"
+        Routes.HOME              -> "Home"
+        Routes.MANAGE_SCHEDULES  -> "Manage Schedules"
+        Routes.REPORT            -> "Report Waste"
+        Routes.MAP               -> "Map"
+        Routes.GUIDES            -> "Recycling Guides"
+        else                     -> "Smart Waste Manager"
     }
 
-    // Show a confirmation dialog before logging out
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     if (showLogoutDialog) {
@@ -70,35 +90,40 @@ fun SmartWasteManagerAppContent() {
             title = { Text("Log Out") },
             text = { Text("Are you sure you want to log out?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        showLogoutDialog = false
-                        app.container.authRepository.signOut()
-                        // Navigate to Login and clear the entire back stack
-                        navController.navigate(Routes.LOGIN) {
-                            popUpTo(0) { inclusive = true }
-                        }
+                TextButton(onClick = {
+                    showLogoutDialog = false
+                    authViewModel.signOut()
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
                     }
-                ) {
+                }) {
                     Text("Log Out", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showLogoutDialog = false }) { Text("Cancel") }
             }
         )
     }
 
     Scaffold(
         topBar = {
-            // Only show the top bar on main app screens, not on auth screens
             if (!isOnAuthScreen) {
                 TopAppBar(
                     title = { Text(screenTitle) },
                     actions = {
-                        // Logout button in the top-right corner
+                        // ---- Driver view toggle (only visible to drivers) ----
+                        if (isDriver) {
+                            IconButton(onClick = { homeViewModel.toggleDriverView() }) {
+                                Icon(
+                                    imageVector = if (isDriverViewActive) Icons.Default.PersonOff
+                                    else Icons.Default.Person,
+                                    contentDescription = if (isDriverViewActive) "Switch to User View"
+                                    else "Switch to Driver View"
+                                )
+                            }
+                        }
+                        // ---- Logout button ----
                         IconButton(onClick = { showLogoutDialog = true }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Logout,
@@ -119,12 +144,7 @@ fun SmartWasteManagerAppContent() {
                 NavigationBar {
                     BottomNavItem.all.forEach { item ->
                         NavigationBarItem(
-                            icon = {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = item.label
-                                )
-                            },
+                            icon = { Icon(item.icon, contentDescription = item.label) },
                             label = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
@@ -148,6 +168,8 @@ fun SmartWasteManagerAppContent() {
             navController = navController,
             startDestination = startDestination,
             authRepository = app.container.authRepository,
+            scheduleRepository = app.container.scheduleRepository,
+            viewToggleRepository = app.container.viewToggleRepository,
             modifier = Modifier.padding(innerPadding)
         )
     }
