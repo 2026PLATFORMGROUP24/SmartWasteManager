@@ -25,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -40,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -48,10 +50,10 @@ import java.util.concurrent.Executors
 /**
  * Camera preview screen.
  *
- * All ProcessCameraProvider / ListenableFuture calls are delegated to
- * [bindCameraToLifecycle] in CameraHelper.kt — a plain Kotlin file with
- * no Compose imports. This prevents the "Cannot access ListenableFuture"
- * classpath conflict that occurs when those calls appear alongside Compose code.
+ * - Camera binding is delegated to CameraHelper.kt (no ListenableFuture in this file).
+ * - Navigation and Compose state in onCaptureSuccess are dispatched to the main thread
+ *   via mainExecutor to prevent the "setCurrentState must be on main thread" crash.
+ * - The top bar uses a fixed 56.dp Surface so it never clips with the preview.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -63,50 +65,61 @@ fun ScanScreen(
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ---- Camera permission ----
     val cameraPermission = rememberPermissionState(android.Manifest.permission.CAMERA)
 
-    // ImageCapture is set by CameraHelper once the camera is bound
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     var isCapturing         by remember { mutableStateOf(false) }
 
-    // Executor for takePicture callbacks (runs off the main thread)
+    // Background thread — bitmap work happens here
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    // Main thread — all Compose state + navigation must run here
+    val mainExecutor   = remember { ContextCompat.getMainExecutor(context) }
+
     DisposableEffect(Unit) { onDispose { cameraExecutor.shutdown() } }
 
-    // Ask for permission on first composition if not already granted
     LaunchedEffect(Unit) {
         if (!cameraPermission.status.isGranted) cameraPermission.launchPermissionRequest()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // ---- Top bar ----
-        Row(
+        // ---- Top bar — fixed height Surface prevents clipping ----
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(56.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            tonalElevation = 4.dp
         ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint               = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text  = "Scan Waste",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
-            Text(
-                text  = "Scan Waste",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
         }
 
         if (!cameraPermission.status.isGranted) {
-            // ---- Permission not granted ----
+            // ---- Permission not yet granted ----
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
                     Text(
                         text  = "Camera permission is required to scan waste.",
                         style = MaterialTheme.typography.bodyLarge,
@@ -119,24 +132,19 @@ fun ScanScreen(
                 }
             }
         } else {
+
             // ---- Live camera preview ----
             Box(modifier = Modifier.weight(1f)) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         val previewView = PreviewView(ctx)
-
-                        // Delegate ALL ListenableFuture usage to CameraHelper.kt.
-                        // No ListenableFuture type appears in this file at all.
                         bindCameraToLifecycle(
                             context        = ctx,
                             lifecycleOwner = lifecycleOwner,
                             previewView    = previewView,
-                            onCaptureBound = { capture ->
-                                imageCaptureUseCase = capture
-                            }
+                            onCaptureBound = { capture -> imageCaptureUseCase = capture }
                         )
-
                         previewView
                     }
                 )
@@ -148,37 +156,42 @@ fun ScanScreen(
                     color    = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
+                        .padding(top = 12.dp)
                         .background(Color.Black.copy(alpha = 0.45f))
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
 
-            // ---- Capture button ----
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(20.dp),
-                contentAlignment = Alignment.Center
+            // ---- Capture button bar ----
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color    = MaterialTheme.colorScheme.surface,
+                tonalElevation = 4.dp
             ) {
                 Button(
                     onClick = {
                         val capture = imageCaptureUseCase ?: return@Button
                         isCapturing = true
+
                         capture.takePicture(
-                            cameraExecutor,
+                            cameraExecutor, // ← callback fires on background thread
                             object : ImageCapture.OnImageCapturedCallback() {
                                 override fun onCaptureSuccess(imageProxy: ImageProxy) {
+                                    // ✅ Bitmap work — safe on background thread
                                     val bitmap: Bitmap = imageProxy.toBitmap()
                                     imageProxy.close()
                                     viewModel.classifyImage(bitmap)
-                                    isCapturing = false
-                                    onNavigateToForm()
+
+                                    // ✅ Compose state + navigation — must be on main thread
+                                    mainExecutor.execute {
+                                        isCapturing = false
+                                        onNavigateToForm()
+                                    }
                                 }
+
                                 override fun onError(exception: ImageCaptureException) {
                                     Log.e("ScanScreen", "Capture failed", exception)
-                                    isCapturing = false
+                                    mainExecutor.execute { isCapturing = false }
                                 }
                             }
                         )
@@ -186,6 +199,7 @@ fun ScanScreen(
                     enabled  = !isCapturing,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(16.dp)
                         .height(56.dp)
                 ) {
                     if (isCapturing) {
@@ -195,9 +209,9 @@ fun ScanScreen(
                         )
                     } else {
                         Icon(
-                            imageVector      = Icons.Default.Camera,
+                            imageVector        = Icons.Default.Camera,
                             contentDescription = null,
-                            modifier         = Modifier.size(20.dp)
+                            modifier           = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Capture & Analyse")

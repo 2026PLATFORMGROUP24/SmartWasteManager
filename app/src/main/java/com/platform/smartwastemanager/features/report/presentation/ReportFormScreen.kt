@@ -13,26 +13,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.platform.smartwastemanager.features.report.domain.ReportType
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 
 /**
  * Waste Report form screen.
  *
- * Auto-populated fields:
- *   - Category: pre-filled by ML Kit scan OR defaults to Mixed Waste
- *   - Location: fetched from GPS on first composition
- *   - Street Name: reverse-geocoded from GPS, editable by user
- *   - Timestamp: set automatically in WasteReport default
- *   - Status: always "pending" (set in WasteReport default)
- *   - ReportedBy: injected from AuthViewModel via [currentUserUid]
- *
- * User-editable fields:
- *   - Category dropdown
- *   - Report Type dropdown
- *   - Street Name text field (with refresh button)
+ * Requests ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION before fetching GPS.
+ * If permission is denied the street name field stays empty and the user can
+ * type it manually. The form is never blocked — location is optional input.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun ReportFormScreen(
     viewModel: ReportViewModel,
@@ -42,30 +36,39 @@ fun ReportFormScreen(
 ) {
     val context = LocalContext.current
 
-    val uiState         by viewModel.uiState.collectAsStateWithLifecycle()
-    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val uiState            by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedCategory   by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val selectedReportType by viewModel.selectedReportType.collectAsStateWithLifecycle()
-    val streetName      by viewModel.streetName.collectAsStateWithLifecycle()
-    val isLocating      by viewModel.isLocating.collectAsStateWithLifecycle()
+    val streetName         by viewModel.streetName.collectAsStateWithLifecycle()
+    val isLocating         by viewModel.isLocating.collectAsStateWithLifecycle()
 
-    // Fetch GPS location once when the screen first appears
+    // ---- Location permissions (both fine and coarse) ----
+    val locationPermissions = rememberMultiplePermissionsState(
+        permissions = listOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    )
+
+    // When the screen first appears:
+    //  1. Request location permission if not yet granted.
+    //  2. If already granted, fetch location immediately.
     LaunchedEffect(Unit) {
-        viewModel.fetchLocation(context)
-    }
-
-    // Navigate away after a successful submission
-    LaunchedEffect(uiState) {
-        if (uiState is ReportUiState.Success) {
-            onSubmitSuccess()
-            viewModel.resetForm()
+        if (locationPermissions.allPermissionsGranted) {
+            viewModel.fetchLocation(context)
+        } else {
+            locationPermissions.launchMultiplePermissionRequest()
         }
     }
 
-    // ---- Dropdown expanded states ----
-    var categoryDropdownExpanded   by remember { mutableStateOf(false) }
-    var reportTypeDropdownExpanded by remember { mutableStateOf(false) }
+    // Once the user grants permission (dialog dismissed), fetch location automatically.
+    LaunchedEffect(locationPermissions.allPermissionsGranted) {
+        if (locationPermissions.allPermissionsGranted) {
+            viewModel.fetchLocation(context)
+        }
+    }
 
-    // ---- Success dialog (shown briefly before navigating back) ----
+    // ---- Success dialog ----
     var showSuccessDialog by remember { mutableStateOf(false) }
     LaunchedEffect(uiState) {
         if (uiState is ReportUiState.Success) showSuccessDialog = true
@@ -75,7 +78,7 @@ fun ReportFormScreen(
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Report Submitted ✅") },
-            text  = { Text("Your waste report has been submitted successfully. Drivers will be notified.") },
+            text  = { Text("Your waste report has been submitted. Drivers will be notified.") },
             confirmButton = {
                 TextButton(onClick = {
                     showSuccessDialog = false
@@ -85,6 +88,10 @@ fun ReportFormScreen(
             }
         )
     }
+
+    // ---- Dropdown expanded states ----
+    var categoryDropdownExpanded   by remember { mutableStateOf(false) }
+    var reportTypeDropdownExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
 
@@ -102,7 +109,7 @@ fun ReportFormScreen(
                 )
             }
             Text(
-                text = "Submit Report",
+                text  = "Submit Report",
                 style = MaterialTheme.typography.titleLarge
             )
         }
@@ -115,11 +122,41 @@ fun ReportFormScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
+            // ---- Location permission banner (shown only when denied) ----
+            if (!locationPermissions.allPermissionsGranted) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text  = "📍 Location permission needed",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text  = "Grant location access to auto-detect your street name, or type it manually below.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(
+                            onClick = { locationPermissions.launchMultiplePermissionRequest() }
+                        ) {
+                            Text(
+                                "Grant Permission",
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+
             // ---- Category dropdown ----
-            Text(
-                text = "Waste Category",
-                style = MaterialTheme.typography.labelLarge
-            )
+            Text("Waste Category", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
                 expanded = categoryDropdownExpanded,
                 onExpandedChange = { categoryDropdownExpanded = it }
@@ -129,10 +166,10 @@ fun ReportFormScreen(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Category") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(categoryDropdownExpanded) },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(categoryDropdownExpanded)
+                    },
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
                 )
                 ExposedDropdownMenu(
                     expanded = categoryDropdownExpanded,
@@ -151,10 +188,7 @@ fun ReportFormScreen(
             }
 
             // ---- Report Type dropdown ----
-            Text(
-                text = "Report Type",
-                style = MaterialTheme.typography.labelLarge
-            )
+            Text("Report Type", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
                 expanded = reportTypeDropdownExpanded,
                 onExpandedChange = { reportTypeDropdownExpanded = it }
@@ -164,10 +198,10 @@ fun ReportFormScreen(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Report Type") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded) },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded)
+                    },
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
                 )
                 ExposedDropdownMenu(
                     expanded = reportTypeDropdownExpanded,
@@ -186,10 +220,7 @@ fun ReportFormScreen(
             }
 
             // ---- Street Name field ----
-            Text(
-                text = "Location",
-                style = MaterialTheme.typography.labelLarge
-            )
+            Text("Location", style = MaterialTheme.typography.labelLarge)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -201,17 +232,22 @@ fun ReportFormScreen(
                     placeholder = { Text("Auto-detected from GPS…") },
                     supportingText = {
                         Text(
-                            if (isLocating) "📍 Detecting location…"
-                            else "GPS location detected. You can edit if needed."
+                            when {
+                                isLocating -> "📍 Detecting location…"
+                                !locationPermissions.allPermissionsGranted ->
+                                    "⚠️ No permission — enter manually"
+                                streetName.isEmpty() -> "📍 Tap refresh to detect"
+                                else -> "✅ GPS detected. You can edit if needed."
+                            }
                         )
                     },
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                // Refresh GPS button
+                // Refresh GPS button — only active when permission is granted
                 IconButton(
                     onClick = { viewModel.fetchLocation(context) },
-                    enabled = !isLocating
+                    enabled = !isLocating && locationPermissions.allPermissionsGranted
                 ) {
                     if (isLocating) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp))
@@ -219,7 +255,10 @@ fun ReportFormScreen(
                         Icon(
                             imageVector = Icons.Default.LocationOn,
                             contentDescription = "Refresh location",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (locationPermissions.allPermissionsGranted)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.outline
                         )
                     }
                 }
@@ -234,15 +273,13 @@ fun ReportFormScreen(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Auto-filled fields",
+                        text  = "Auto-filled fields",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "📅 Timestamp: Now\n" +
-                                "🔴 Status: Pending\n" +
-                                "👤 Reported by: Your account",
+                        text  = "📅 Timestamp: Now\n🔴 Status: Pending\n👤 Reported by: Your account",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -252,7 +289,7 @@ fun ReportFormScreen(
             // ---- Error message ----
             if (uiState is ReportUiState.Error) {
                 Text(
-                    text = "⚠️ ${(uiState as ReportUiState.Error).message}",
+                    text  = "⚠️ ${(uiState as ReportUiState.Error).message}",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -262,16 +299,14 @@ fun ReportFormScreen(
 
             // ---- Submit button ----
             Button(
-                onClick = { viewModel.submitReport(currentUserUid) },
-                enabled = uiState !is ReportUiState.Loading && !isLocating,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
+                onClick  = { viewModel.submitReport(currentUserUid) },
+                enabled  = uiState !is ReportUiState.Loading,
+                modifier = Modifier.fillMaxWidth().height(56.dp)
             ) {
                 if (uiState is ReportUiState.Loading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary
+                        color    = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
                     Text("Submit Report")
