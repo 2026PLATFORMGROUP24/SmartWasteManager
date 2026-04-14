@@ -82,8 +82,9 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
 
-    // Provides ListenableFuture on the classpath — required by ProcessCameraProvider.getInstance()
-    implementation(libs.androidx.concurrent.futures)
+    // Guava — provides com.google.common.util.concurrent.ListenableFuture
+    // which is required at compile time by ProcessCameraProvider.getInstance()
+    implementation(libs.guava)
 
     // ---- Accompanist ----
     implementation(libs.accompanist.permissions)
