@@ -1,42 +1,34 @@
 package com.platform.smartwastemanager.features.report.presentation
 
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Camera
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -50,10 +42,9 @@ import java.util.concurrent.Executors
 /**
  * Camera preview screen.
  *
- * - Camera binding is delegated to CameraHelper.kt (no ListenableFuture in this file).
- * - Navigation and Compose state in onCaptureSuccess are dispatched to the main thread
- *   via mainExecutor to prevent the "setCurrentState must be on main thread" crash.
- * - The top bar uses a fixed 56.dp Surface so it never clips with the preview.
+ * - Camera bound to full screen.
+ * - Layered UI for controls (Back, Capture, Gallery).
+ * - Target box overlay for better accuracy.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -70,10 +61,31 @@ fun ScanScreen(
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     var isCapturing         by remember { mutableStateOf(false) }
 
-    // Background thread — bitmap work happens here
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-    // Main thread — all Compose state + navigation must run here
     val mainExecutor   = remember { ContextCompat.getMainExecutor(context) }
+
+    // Launcher for selecting an image from the gallery
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                val bitmap = if (Build.VERSION.SDK_INT < 28) {
+                    @Suppress("DEPRECATION")
+                    MediaStore.Images.Media.getBitmap(context.contentResolver, it)
+                } else {
+                    val source = ImageDecoder.createSource(context.contentResolver, it)
+                    ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+                }
+                viewModel.classifyImage(bitmap)
+                onNavigateToForm()
+            } catch (e: Exception) {
+                Log.e("ScanScreen", "Gallery import failed", e)
+            }
+        }
+    }
 
     DisposableEffect(Unit) { onDispose { cameraExecutor.shutdown() } }
 
@@ -81,108 +93,163 @@ fun ScanScreen(
         if (!cameraPermission.status.isGranted) cameraPermission.launchPermissionRequest()
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ---- Top bar — fixed height Surface prevents clipping ----
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            tonalElevation = 4.dp
-        ) {
-            Row(
+        if (!cameraPermission.status.isGranted) {
+            // ---- Permission not yet granted ----
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.align(Alignment.Center).padding(24.dp)
+            ) {
+                Text(
+                    text  = "Camera permission is required to scan waste.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = { cameraPermission.launchPermissionRequest() }) {
+                    Text("Grant Permission")
+                }
+            }
+        } else {
+            // ---- Live camera preview (Full Screen) ----
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    val previewView = PreviewView(ctx)
+                    bindCameraToLifecycle(
+                        context        = ctx,
+                        lifecycleOwner = lifecycleOwner,
+                        previewView    = previewView,
+                        onCaptureBound = { capture -> imageCaptureUseCase = capture }
+                    )
+                    previewView
+                }
+            )
+
+            // ---- Target Box Overlay (70% center area) ----
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val canvasWidth = size.width
+                val canvasHeight = size.height
+                val boxWidth = canvasWidth * 0.7f
+                val boxHeight = canvasHeight * 0.7f
+                
+                val left = (canvasWidth - boxWidth) / 2
+                val top = (canvasHeight - boxHeight) / 2
+                
+                // Draw a subtle focus frame
+                val cornerLength = 40.dp.toPx()
+                val strokeWidth = 3.dp.toPx()
+                val color = Color.White.copy(alpha = 0.7f)
+
+                // Top Left
+                drawLine(color, Offset(left, top), Offset(left + cornerLength, top), strokeWidth)
+                drawLine(color, Offset(left, top), Offset(left, top + cornerLength), strokeWidth)
+
+                // Top Right
+                drawLine(color, Offset(left + boxWidth, top), Offset(left + boxWidth - cornerLength, top), strokeWidth)
+                drawLine(color, Offset(left + boxWidth, top), Offset(left + boxWidth, top + cornerLength), strokeWidth)
+
+                // Bottom Left
+                drawLine(color, Offset(left, top + boxHeight), Offset(left + cornerLength, top + boxHeight), strokeWidth)
+                drawLine(color, Offset(left, top + boxHeight), Offset(left, top + boxHeight - cornerLength), strokeWidth)
+
+                // Bottom Right
+                drawLine(color, Offset(left + boxWidth, top + boxHeight), Offset(left + boxWidth - cornerLength, top + boxHeight), strokeWidth)
+                drawLine(color, Offset(left + boxWidth, top + boxHeight), Offset(left + boxWidth, top + boxHeight - cornerLength), strokeWidth)
+                
+                // Dim the area outside the box slightly
+                drawRect(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    topLeft = Offset.Zero,
+                    size = Size(canvasWidth, top)
+                )
+                drawRect(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    topLeft = Offset(0f, top + boxHeight),
+                    size = Size(canvasWidth, canvasHeight - (top + boxHeight))
+                )
+                drawRect(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    topLeft = Offset(0f, top),
+                    size = Size(left, boxHeight)
+                )
+                drawRect(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    topLeft = Offset(left + boxWidth, top),
+                    size = Size(canvasWidth - (left + boxWidth), boxHeight)
+                )
+            }
+
+            // ---- Back Button (Top Left) ----
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .align(Alignment.TopStart)
+                    .padding(top = 48.dp, start = 16.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.45f)
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
                         imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint               = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint               = Color.White
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text  = "Scan Waste",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-
-        if (!cameraPermission.status.isGranted) {
-            // ---- Permission not yet granted ----
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
-                ) {
-                    Text(
-                        text  = "Camera permission is required to scan waste.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = { cameraPermission.launchPermissionRequest() }) {
-                        Text("Grant Permission")
-                    }
-                }
-            }
-        } else {
-
-            // ---- Live camera preview ----
-            Box(modifier = Modifier.weight(1f)) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx)
-                        bindCameraToLifecycle(
-                            context        = ctx,
-                            lifecycleOwner = lifecycleOwner,
-                            previewView    = previewView,
-                            onCaptureBound = { capture -> imageCaptureUseCase = capture }
-                        )
-                        previewView
-                    }
-                )
-
-                // Hint overlay
-                Text(
-                    text     = "Point camera at waste item",
-                    style    = MaterialTheme.typography.bodyMedium,
-                    color    = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 12.dp)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
             }
 
-            // ---- Capture button bar ----
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color    = MaterialTheme.colorScheme.surface,
-                tonalElevation = 4.dp
+            // ---- Hint overlay ----
+            Text(
+                text     = "Place item inside the frame",
+                style    = MaterialTheme.typography.bodyMedium,
+                color    = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 100.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), shape = RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+
+            // ---- Bottom Controls Row ----
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 48.dp, start = 32.dp, end = 32.dp)
             ) {
-                Button(
+                // Gallery Button (Bottom Left)
+                Surface(
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f)
+                ) {
+                    IconButton(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = "Select from gallery",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                // Capture Button (Center)
+                LargeFloatingActionButton(
                     onClick = {
-                        val capture = imageCaptureUseCase ?: return@Button
+                        val capture = imageCaptureUseCase ?: return@LargeFloatingActionButton
                         isCapturing = true
 
                         capture.takePicture(
-                            cameraExecutor, // ← callback fires on background thread
+                            cameraExecutor,
                             object : ImageCapture.OnImageCapturedCallback() {
                                 override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                                    // ✅ Bitmap work — safe on background thread
                                     val bitmap: Bitmap = imageProxy.toBitmap()
                                     imageProxy.close()
                                     viewModel.classifyImage(bitmap)
 
-                                    // ✅ Compose state + navigation — must be on main thread
                                     mainExecutor.execute {
                                         isCapturing = false
                                         onNavigateToForm()
@@ -196,25 +263,19 @@ fun ScanScreen(
                             }
                         )
                     },
-                    enabled  = !isCapturing,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .height(56.dp)
+                    modifier = Modifier.align(Alignment.Center).size(80.dp),
+                    shape = CircleShape,
+                    containerColor = Color.White,
+                    contentColor = MaterialTheme.colorScheme.primary
                 ) {
                     if (isCapturing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color    = MaterialTheme.colorScheme.onPrimary
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
                     } else {
                         Icon(
-                            imageVector        = Icons.Default.Camera,
-                            contentDescription = null,
-                            modifier           = Modifier.size(20.dp)
+                            imageVector = Icons.Default.Camera,
+                            contentDescription = "Capture",
+                            modifier = Modifier.size(36.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Capture & Analyse")
                     }
                 }
             }

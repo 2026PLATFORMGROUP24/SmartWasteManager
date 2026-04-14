@@ -49,6 +49,10 @@ class ReportViewModel(
     private val _selectedCategory = MutableStateFlow(WasteCategory.MIXED_WASTE.displayName)
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    // Top AI labels and their confidence scores
+    private val _aiLabels = MutableStateFlow<List<Pair<String, Float>>>(emptyList())
+    val aiLabels: StateFlow<List<Pair<String, Float>>> = _aiLabels.asStateFlow()
+
     // The selected report type
     private val _selectedReportType = MutableStateFlow(ReportType.REGULAR_PICKUP.displayName)
     val selectedReportType: StateFlow<String> = _selectedReportType.asStateFlow()
@@ -78,8 +82,9 @@ class ReportViewModel(
     fun classifyImage(bitmap: Bitmap) {
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
-            val category = wasteImageClassifier.classify(bitmap)
-            _selectedCategory.value = category.displayName
+            val result = wasteImageClassifier.classify(bitmap)
+            _selectedCategory.value = result.category.displayName
+            _aiLabels.value = result.topLabels
             _uiState.value = ReportUiState.Idle
         }
     }
@@ -130,6 +135,7 @@ class ReportViewModel(
     /** Resets the form back to defaults. Called after a successful submission. */
     fun resetForm() {
         _selectedCategory.value = WasteCategory.MIXED_WASTE.displayName
+        _aiLabels.value = emptyList()
         _selectedReportType.value = ReportType.REGULAR_PICKUP.displayName
         _streetName.value = ""
         _location.value = GeoPoint(0.0, 0.0)

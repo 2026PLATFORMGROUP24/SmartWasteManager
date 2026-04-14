@@ -1,18 +1,17 @@
 package com.platform.smartwastemanager.features.report.domain
 
 /**
- * All waste categories used across the app:
- * - Schedule cards (what gets collected on which day)
- * - Waste reports (what type of waste was found)
- * - AI classifier output (ML Kit labels are mapped to these)
+ * Refined waste categories to better handle sub-types and the "Mixed Waste" priority.
+ *
+ * Hierarchical Logic (Internal):
+ * - RECYCLABLE includes: Paper, Plastic, Glass, Metal.
+ * - ORGANIC
+ * - HAZARDOUS
+ * - MIXED_WASTE (Default for anything that doesn't fit or has conflicting high-confidence signals)
  */
 enum class WasteCategory(val displayName: String) {
     RECYCLABLE("Recyclable"),
     ORGANIC("Organic"),
-    PAPER("Paper"),
-    GLASS("Glass"),
-    PLASTIC("Plastic"),
-    METAL("Metal"),
     HAZARDOUS("Hazardous"),
     MIXED_WASTE("Mixed Waste");
 
