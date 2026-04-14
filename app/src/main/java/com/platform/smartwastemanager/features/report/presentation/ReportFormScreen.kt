@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +18,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.platform.smartwastemanager.features.report.domain.ReportType
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
@@ -25,9 +25,12 @@ import com.platform.smartwastemanager.features.report.domain.WasteCategory
 /**
  * Waste Report form screen.
  *
- * Requests ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION before fetching GPS.
- * If permission is denied the street name field stays empty and the user can
- * type it manually. The form is never blocked — location is optional input.
+ * - Collects waste category, report type, and street name.
+ * - Shows an AI scan summary card when the user arrived via the camera scan flow.
+ * - Shows a low-confidence warning card when the model wasn't sure, prompting
+ *   the user to re-scan or correct the category manually.
+ * - Requests ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION before fetching GPS.
+ *   If denied, the street name stays empty and the user types it manually.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -39,14 +42,16 @@ fun ReportFormScreen(
 ) {
     val context = LocalContext.current
 
+    // ---- Observe all ViewModel state ----
     val uiState            by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedCategory   by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val aiLabels           by viewModel.aiLabels.collectAsStateWithLifecycle()
+    val isLowConfidence    by viewModel.isLowConfidence.collectAsStateWithLifecycle()
     val selectedReportType by viewModel.selectedReportType.collectAsStateWithLifecycle()
     val streetName         by viewModel.streetName.collectAsStateWithLifecycle()
     val isLocating         by viewModel.isLocating.collectAsStateWithLifecycle()
 
-    // ---- Location permissions (both fine and coarse) ----
+    // ---- Location permissions ----
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
             android.Manifest.permission.ACCESS_FINE_LOCATION,
@@ -54,9 +59,7 @@ fun ReportFormScreen(
         )
     )
 
-    // When the screen first appears:
-    //  1. Request location permission if not yet granted.
-    //  2. If already granted, fetch location immediately.
+    // Request permission + fetch location when the screen first opens
     LaunchedEffect(Unit) {
         if (locationPermissions.allPermissionsGranted) {
             viewModel.fetchLocation(context)
@@ -65,7 +68,7 @@ fun ReportFormScreen(
         }
     }
 
-    // Once the user grants permission (dialog dismissed), fetch location automatically.
+    // Fetch location automatically once the user grants permission
     LaunchedEffect(locationPermissions.allPermissionsGranted) {
         if (locationPermissions.allPermissionsGranted) {
             viewModel.fetchLocation(context)
@@ -97,6 +100,7 @@ fun ReportFormScreen(
     var categoryDropdownExpanded   by remember { mutableStateOf(false) }
     var reportTypeDropdownExpanded by remember { mutableStateOf(false) }
 
+    // ---- Root layout ----
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ---- Top bar ----
@@ -108,7 +112,7 @@ fun ReportFormScreen(
         ) {
             IconButton(onClick = onNavigateBack) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back"
                 )
             }
@@ -118,6 +122,7 @@ fun ReportFormScreen(
             )
         }
 
+        // ---- Scrollable form body ----
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -126,7 +131,11 @@ fun ReportFormScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-            // ---- AI Analysis Results (Shown if available) ----
+            // ================================================================
+            // AI SCAN RESULTS CARD
+            // Shown only when the user arrived via the camera scan flow and the
+            // classifier returned at least one label.
+            // ================================================================
             AnimatedVisibility(visible = aiLabels.isNotEmpty()) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -135,65 +144,162 @@ fun ReportFormScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+
+                        // Card header
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Info,
+                                imageVector        = Icons.Default.Info,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.size(20.dp)
+                                tint               = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier           = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "AI Analysis Results",
-                                style = MaterialTheme.typography.titleSmall,
+                                text       = "🤖 AI Scan Results",
+                                style      = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                                color      = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+
+                        Spacer(Modifier.height(10.dp))
+
+                        // Detected category pill — shows what the AI picked
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text  = "Detected as: ",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Surface(
+                                color = MaterialTheme.colorScheme.tertiary,
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text      = selectedCategory,
+                                    style     = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color     = MaterialTheme.colorScheme.onTertiary,
+                                    modifier  = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        // Top-5 raw model labels with confidence bars
                         Text(
-                            text = "Based on your photo, the AI detected the following objects:",
+                            text  = "Top objects seen by the model:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
                         )
-                        Spacer(Modifier.height(8.dp))
-                        
+                        Spacer(Modifier.height(6.dp))
+
                         aiLabels.forEach { (label, confidence) ->
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                modifier            = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment   = Alignment.CenterVertically
                             ) {
+                                // Truncate very long label strings so they don't overflow
                                 Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    text     = label.take(36),
+                                    style    = MaterialTheme.typography.bodySmall,
+                                    color    = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "${(confidence * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    text       = "${(confidence * 100).toInt()}%",
+                                    style      = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    color      = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
                             }
                             LinearProgressIndicator(
-                                progress = { confidence },
-                                modifier = Modifier.fillMaxWidth().height(4.dp),
-                                color = MaterialTheme.colorScheme.tertiary,
-                                trackColor = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.1f)
+                                progress   = { confidence },
+                                modifier   = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                                color      = MaterialTheme.colorScheme.tertiary,
+                                trackColor = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.15f)
                             )
+                            Spacer(Modifier.height(2.dp))
                         }
-                        
+
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "The category was auto-selected based on the highest match.",
+                            text  = "✏️ You can change the category below if the AI got it wrong.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
                         )
                     }
                 }
             }
 
-            // ---- Location permission banner (shown only when denied) ----
+            // ================================================================
+            // LOW CONFIDENCE WARNING CARD
+            // Shown when the model scanned something but wasn't confident.
+            // Only visible when aiLabels is also non-empty (i.e. a scan happened).
+            // Gives the user actionable tips and a shortcut back to the camera.
+            // ================================================================
+            AnimatedVisibility(visible = isLowConfidence && aiLabels.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector        = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint               = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier           = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text       = "Low confidence scan",
+                                style      = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color      = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        Text(
+                            text  = "The AI wasn't confident about this item. For a better result:\n" +
+                                    "  • Move closer so the item fills the frame\n" +
+                                    "  • Use better lighting or avoid glare\n" +
+                                    "  • Place the item on a plain, clean surface\n\n" +
+                                    "Or simply correct the category in the dropdown below.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // Quick shortcut back to the camera
+                        TextButton(onClick = onNavigateBack) {
+                            Text(
+                                text       = "📷  Scan Again",
+                                color      = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ================================================================
+            // LOCATION PERMISSION BANNER
+            // Only shown when location was denied — never blocks form submission.
+            // ================================================================
             if (!locationPermissions.allPermissionsGranted) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -209,7 +315,8 @@ fun ReportFormScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text  = "Grant location access to auto-detect your street name, or type it manually below.",
+                            text  = "Grant location access to auto-detect your street name, " +
+                                    "or type it manually below.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -218,7 +325,7 @@ fun ReportFormScreen(
                             onClick = { locationPermissions.launchMultiplePermissionRequest() }
                         ) {
                             Text(
-                                "Grant Permission",
+                                text  = "Grant Permission",
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
                         }
@@ -226,29 +333,34 @@ fun ReportFormScreen(
                 }
             }
 
-            // ---- Category dropdown ----
+            // ================================================================
+            // CATEGORY DROPDOWN
+            // Pre-filled by the AI classifier. User can override.
+            // ================================================================
             Text("Waste Category", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
-                expanded = categoryDropdownExpanded,
+                expanded        = categoryDropdownExpanded,
                 onExpandedChange = { categoryDropdownExpanded = it }
             ) {
                 OutlinedTextField(
-                    value = selectedCategory,
+                    value         = selectedCategory,
                     onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Category") },
-                    trailingIcon = {
+                    readOnly      = true,
+                    label         = { Text("Category") },
+                    trailingIcon  = {
                         ExposedDropdownMenuDefaults.TrailingIcon(categoryDropdownExpanded)
                     },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
                 )
                 ExposedDropdownMenu(
-                    expanded = categoryDropdownExpanded,
+                    expanded        = categoryDropdownExpanded,
                     onDismissRequest = { categoryDropdownExpanded = false }
                 ) {
                     WasteCategory.entries.forEach { category ->
                         DropdownMenuItem(
-                            text = { Text(category.displayName) },
+                            text    = { Text(category.displayName) },
                             onClick = {
                                 viewModel.setCategory(category.displayName)
                                 categoryDropdownExpanded = false
@@ -258,29 +370,33 @@ fun ReportFormScreen(
                 }
             }
 
-            // ---- Report Type dropdown ----
+            // ================================================================
+            // REPORT TYPE DROPDOWN
+            // ================================================================
             Text("Report Type", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
-                expanded = reportTypeDropdownExpanded,
+                expanded        = reportTypeDropdownExpanded,
                 onExpandedChange = { reportTypeDropdownExpanded = it }
             ) {
                 OutlinedTextField(
-                    value = selectedReportType,
+                    value         = selectedReportType,
                     onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Report Type") },
-                    trailingIcon = {
+                    readOnly      = true,
+                    label         = { Text("Report Type") },
+                    trailingIcon  = {
                         ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded)
                     },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
                 )
                 ExposedDropdownMenu(
-                    expanded = reportTypeDropdownExpanded,
+                    expanded        = reportTypeDropdownExpanded,
                     onDismissRequest = { reportTypeDropdownExpanded = false }
                 ) {
                     ReportType.entries.forEach { type ->
                         DropdownMenuItem(
-                            text = { Text(type.displayName) },
+                            text    = { Text(type.displayName) },
                             onClick = {
                                 viewModel.setReportType(type.displayName)
                                 reportTypeDropdownExpanded = false
@@ -290,41 +406,47 @@ fun ReportFormScreen(
                 }
             }
 
-            // ---- Street Name field ----
+            // ================================================================
+            // STREET NAME FIELD
+            // Auto-populated by GPS + Geocoder. User can edit freely.
+            // ================================================================
             Text("Location", style = MaterialTheme.typography.labelLarge)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = streetName,
+                    value         = streetName,
                     onValueChange = { viewModel.setStreetName(it) },
-                    label = { Text("Street Name") },
-                    placeholder = { Text("Auto-detected from GPS…") },
+                    label         = { Text("Street Name") },
+                    placeholder   = { Text("Auto-detected from GPS…") },
                     supportingText = {
                         Text(
                             when {
-                                isLocating -> "📍 Detecting location…"
+                                isLocating ->
+                                    "📍 Detecting location…"
                                 !locationPermissions.allPermissionsGranted ->
                                     "⚠️ No permission — enter manually"
-                                streetName.isEmpty() -> "📍 Tap refresh to detect"
-                                else -> "✅ GPS detected. You can edit if needed."
+                                streetName.isEmpty() ->
+                                    "📍 Tap the refresh icon to detect"
+                                else ->
+                                    "✅ GPS detected. You can edit if needed."
                             }
                         )
                     },
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                // Refresh GPS button — only active when permission is granted
+                // Refresh GPS button — only enabled when permission is granted
                 IconButton(
-                    onClick = { viewModel.fetchLocation(context) },
-                    enabled = !isLocating && locationPermissions.allPermissionsGranted
+                    onClick  = { viewModel.fetchLocation(context) },
+                    enabled  = !isLocating && locationPermissions.allPermissionsGranted
                 ) {
                     if (isLocating) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     } else {
                         Icon(
-                            imageVector = Icons.Default.LocationOn,
+                            imageVector        = Icons.Default.LocationOn,
                             contentDescription = "Refresh location",
                             tint = if (locationPermissions.allPermissionsGranted)
                                 MaterialTheme.colorScheme.primary
@@ -335,7 +457,10 @@ fun ReportFormScreen(
                 }
             }
 
-            // ---- Auto-filled info card ----
+            // ================================================================
+            // AUTO-FILLED INFO CARD
+            // Reminds the user which fields are set automatically.
+            // ================================================================
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -357,7 +482,10 @@ fun ReportFormScreen(
                 }
             }
 
-            // ---- Error message ----
+            // ================================================================
+            // SUBMISSION ERROR MESSAGE
+            // Shown below the info card when the Firestore write fails.
+            // ================================================================
             if (uiState is ReportUiState.Error) {
                 Text(
                     text  = "⚠️ ${(uiState as ReportUiState.Error).message}",
@@ -368,11 +496,16 @@ fun ReportFormScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ---- Submit button ----
+            // ================================================================
+            // SUBMIT BUTTON
+            // Disabled while loading. Shows a spinner during submission.
+            // ================================================================
             Button(
                 onClick  = { viewModel.submitReport(currentUserUid) },
                 enabled  = uiState !is ReportUiState.Loading,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
             ) {
                 if (uiState is ReportUiState.Loading) {
                     CircularProgressIndicator(
