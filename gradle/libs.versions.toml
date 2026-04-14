@@ -63,6 +63,9 @@ camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.r
 camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 
+# Guava ListenableFuture — required by ProcessCameraProvider.getInstance()
+androidx-concurrent-futures = { group = "androidx.concurrent", name = "concurrent-futures-ktx", version = "1.2.0" }
+
 # Accompanist
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
 

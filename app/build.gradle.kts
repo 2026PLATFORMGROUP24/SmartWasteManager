@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    // Connects your app to Firebase using google-services.json
     alias(libs.plugins.google.services)
 }
 
@@ -82,6 +81,9 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+
+    // Provides ListenableFuture on the classpath — required by ProcessCameraProvider.getInstance()
+    implementation(libs.androidx.concurrent.futures)
 
     // ---- Accompanist ----
     implementation(libs.accompanist.permissions)

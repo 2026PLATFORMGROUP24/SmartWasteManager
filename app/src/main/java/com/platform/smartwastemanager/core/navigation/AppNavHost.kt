@@ -17,15 +17,18 @@ import com.platform.smartwastemanager.features.home.presentation.HomeScreen
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.home.presentation.ScheduleManagementScreen
 import com.platform.smartwastemanager.features.map.presentation.MapScreen
+import com.platform.smartwastemanager.features.map.presentation.MapViewModel
+import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
+import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
+import com.platform.smartwastemanager.features.report.presentation.ScanScreen
 
 /**
  * Central navigation graph for the app.
  *
- * IMPORTANT: ViewModels are received as parameters — never created here.
- * Creating a ViewModel inside NavHost gives it a shorter lifespan than
- * the Activity, causing it to be recreated on every navigation event,
- * which wipes all loaded data (schedules, etc.).
+ * IMPORTANT (Rule 3): ViewModels are received as parameters — never created here.
+ * Creating a ViewModel inside NavHost gives it a shorter lifespan than the Activity,
+ * causing it to be recreated on every navigation event and wiping all loaded data.
  */
 @Composable
 fun AppNavHost(
@@ -33,6 +36,8 @@ fun AppNavHost(
     startDestination: String,
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
+    reportViewModel: ReportViewModel,
+    mapViewModel: MapViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -55,7 +60,7 @@ fun AppNavHost(
                     }
                 },
                 onNavigateToSignUp = { navController.navigate(Routes.SIGN_UP) },
-                onNavigateToReset = { navController.navigate(Routes.RESET_PASSWORD) }
+                onNavigateToReset  = { navController.navigate(Routes.RESET_PASSWORD) }
             )
         }
 
@@ -78,14 +83,14 @@ fun AppNavHost(
             )
         }
 
-        // ==================== MAIN APP ====================
+        // ==================== HOME ====================
 
         composable(Routes.HOME) {
             HomeScreen(
                 viewModel = homeViewModel,
                 isDriver = isDriver,
                 onNavigateToManage = { navController.navigate(Routes.MANAGE_SCHEDULES) },
-                onNavigateToGuide = { guideId ->
+                onNavigateToGuide  = { guideId ->
                     navController.navigate(Routes.buildGuideDetail(guideId))
                 }
             )
@@ -99,13 +104,54 @@ fun AppNavHost(
             )
         }
 
+        // ==================== REPORT ====================
+
         composable(Routes.REPORT) {
-            ReportScreen()
+            // Entry screen: Scan vs Manual
+            ReportScreen(
+                onNavigateToScan = { navController.navigate(Routes.SCAN) },
+                onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
+            )
         }
 
-        composable(Routes.MAP) {
-            MapScreen()
+        composable(Routes.SCAN) {
+            // Camera + ML Kit screen — navigates to form after capture
+            ScanScreen(
+                viewModel = reportViewModel,
+                onNavigateToForm = {
+                    // Replace scan in back stack so Back from form goes to ReportScreen
+                    navController.navigate(Routes.REPORT_FORM) {
+                        popUpTo(Routes.SCAN) { inclusive = true }
+                    }
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
+
+        composable(Routes.REPORT_FORM) {
+            ReportFormScreen(
+                viewModel = reportViewModel,
+                currentUserUid = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() },
+                onSubmitSuccess = {
+                    // After success, go back to the report entry screen
+                    navController.navigate(Routes.REPORT) {
+                        popUpTo(Routes.REPORT) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ==================== MAP ====================
+
+        composable(Routes.MAP) {
+            MapScreen(
+                viewModel = mapViewModel,
+                isDriver  = isDriver
+            )
+        }
+
+        // ==================== GUIDES ====================
 
         composable(Routes.GUIDES) {
             GuideListScreen()

@@ -30,6 +30,8 @@ import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
+import com.platform.smartwastemanager.features.map.presentation.MapViewModel
+import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,7 +55,7 @@ fun SmartWasteManagerAppContent() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    // ViewModels created ONCE at Activity level — never inside NavHost
+    // ---- ViewModels created ONCE at Activity level (Rule 3) ----
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(app.container.authRepository)
     )
@@ -63,8 +65,17 @@ fun SmartWasteManagerAppContent() {
             app.container.viewToggleRepository
         )
     )
+    val reportViewModel: ReportViewModel = viewModel(
+        factory = ReportViewModel.factory(
+            app.container.reportRepository,
+            app.container.wasteImageClassifier
+        )
+    )
+    val mapViewModel: MapViewModel = viewModel(
+        factory = MapViewModel.factory(app.container.mapRepository)
+    )
 
-    // Reload schedules after any auth event so data is fresh immediately
+    // Reload data after any auth event so it's fresh immediately (Rule 5)
     authViewModel.onAuthSuccess = { homeViewModel.loadSchedules() }
 
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -87,6 +98,8 @@ fun SmartWasteManagerAppContent() {
         Routes.HOME             -> "Home"
         Routes.MANAGE_SCHEDULES -> "Manage Schedules"
         Routes.REPORT           -> "Report Waste"
+        Routes.SCAN             -> "Scan Waste"
+        Routes.REPORT_FORM      -> "Submit Report"
         Routes.MAP              -> "Map"
         Routes.GUIDES           -> "Recycling Guides"
         else                    -> "Smart Waste Manager"
@@ -98,7 +111,7 @@ fun SmartWasteManagerAppContent() {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("Log Out") },
-            text = { Text("Are you sure you want to log out?") },
+            text  = { Text("Are you sure you want to log out?") },
             confirmButton = {
                 TextButton(onClick = {
                     showLogoutDialog = false
@@ -123,7 +136,7 @@ fun SmartWasteManagerAppContent() {
                     TopAppBar(
                         title = { Text(screenTitle) },
                         actions = {
-                            // Toggle button — drivers only
+                            // View toggle button — drivers only
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
@@ -148,9 +161,9 @@ fun SmartWasteManagerAppContent() {
                         )
                     )
 
-                    // ---- Global "Viewing as User" banner ----
-                    // Shown below the top bar on EVERY screen when a driver is in User View.
-                    // This replaces the per-screen banners that were previously on HomeScreen.
+                    // ---- Global "Viewing as User" banner (Rule 13) ----
+                    // Shown on EVERY screen when driver is in User View.
+                    // DO NOT add per-screen copies of this banner.
                     if (isViewingAsUser) {
                         Row(
                             modifier = Modifier
@@ -186,18 +199,18 @@ fun SmartWasteManagerAppContent() {
                 NavigationBar {
                     BottomNavItem.all.forEach { item ->
                         NavigationBarItem(
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
+                            icon     = { Icon(item.icon, contentDescription = item.label) },
+                            label    = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
                             } == true,
-                            onClick = {
+                            onClick  = {
                                 navController.navigate(item.route) {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
                                     launchSingleTop = true
-                                    restoreState = true
+                                    restoreState   = true
                                 }
                             }
                         )
@@ -207,11 +220,13 @@ fun SmartWasteManagerAppContent() {
         }
     ) { innerPadding ->
         AppNavHost(
-            navController = navController,
+            navController    = navController,
             startDestination = startDestination,
-            authViewModel = authViewModel,
-            homeViewModel = homeViewModel,
-            modifier = Modifier.padding(innerPadding)
+            authViewModel    = authViewModel,
+            homeViewModel    = homeViewModel,
+            reportViewModel  = reportViewModel,
+            mapViewModel     = mapViewModel,
+            modifier         = Modifier.padding(innerPadding)
         )
     }
 }

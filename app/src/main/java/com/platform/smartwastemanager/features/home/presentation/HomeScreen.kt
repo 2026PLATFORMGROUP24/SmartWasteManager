@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.home.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +15,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * Home screen — shows the weekly collection schedule.
@@ -127,6 +132,11 @@ fun ScheduleCard(
 ) {
     var showNoGuideDialog by remember { mutableStateOf(false) }
 
+    // Logic to determine if this card should be highlighted
+    val isCurrentlyActive = remember(schedule) {
+        checkIfScheduleIsActive(schedule)
+    }
+
     if (showNoGuideDialog) {
         AlertDialog(
             onDismissRequest = { showNoGuideDialog = false },
@@ -151,9 +161,18 @@ fun ScheduleCard(
                 }
             },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
+            containerColor = if (isCurrentlyActive) 
+                MaterialTheme.colorScheme.primaryContainer 
+            else 
+                MaterialTheme.colorScheme.surfaceVariant
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = if (isCurrentlyActive) 
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary) 
+        else 
+            null,
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isCurrentlyActive) 8.dp else 2.dp
+        )
     ) {
         Row(
             modifier = Modifier
@@ -164,20 +183,44 @@ fun ScheduleCard(
         ) {
             // ---- Left side: day, time range, category chips ----
             Column(modifier = Modifier.weight(1f)) {
-                // Day name
-                Text(
-                    text = schedule.dayOfWeek,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Day name
+                    Text(
+                        text = schedule.dayOfWeek,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCurrentlyActive)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    if (isCurrentlyActive) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            Text(
+                                text = "NOW",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
 
                 // Optional time range (e.g. "07:00 – 12:00")
                 if (!schedule.collectionTimeRange.isNullOrBlank()) {
                     Text(
                         text = "🕐 ${schedule.collectionTimeRange}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = if (isCurrentlyActive)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
@@ -215,7 +258,7 @@ fun ScheduleCard(
                     tint = if (schedule.linkedGuideId != null)
                         MaterialTheme.colorScheme.primary
                     else
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f),
+                        (if (isCurrentlyActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.4f),
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
@@ -224,9 +267,42 @@ fun ScheduleCard(
                     color = if (schedule.linkedGuideId != null)
                         MaterialTheme.colorScheme.primary
                     else
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
+                        (if (isCurrentlyActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.4f)
                 )
             }
         }
+    }
+}
+
+/**
+ * Helper to check if the current time and day match the schedule.
+ */
+private fun checkIfScheduleIsActive(schedule: CollectionDay): Boolean {
+    return try {
+        val calendar = Calendar.getInstance()
+        val currentDay = calendar.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, Locale.getDefault())
+        
+        // Day match
+        if (!schedule.dayOfWeek.equals(currentDay, ignoreCase = true)) {
+            return false
+        }
+        
+        // Time range check
+        val range = schedule.collectionTimeRange ?: return false
+        val parts = range.split("–") // Using the en-dash used in ScheduleDialog
+        if (parts.size != 2) return false
+        
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val startTime = timeFormat.parse(parts[0].trim()) ?: return false
+        val endTime = timeFormat.parse(parts[1].trim()) ?: return false
+        
+        // Current time as a Date object with only HH:mm set
+        val now = Calendar.getInstance()
+        val currentTimeStr = timeFormat.format(now.time)
+        val currentTime = timeFormat.parse(currentTimeStr) ?: return false
+        
+        !currentTime.before(startTime) && !currentTime.after(endTime)
+    } catch (e: Exception) {
+        false
     }
 }

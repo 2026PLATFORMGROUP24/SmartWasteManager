@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.home.presentation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,10 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -374,6 +372,9 @@ fun ScheduleDialog(
             existingSchedule?.wasteCategories?.toSet() ?: emptySet()
         )
     }
+    var categoriesExpanded by remember { 
+        mutableStateOf(existingSchedule?.wasteCategories?.isNotEmpty() == true) 
+    }
 
     // ---- Time range state ----
     // Parse the existing "HH:mm – HH:mm" string back into separate hour/minute values.
@@ -466,95 +467,125 @@ fun ScheduleDialog(
                 }
 
                 // ── Multi-select Waste Categories ─────────────────────────
-                Text(
-                    text = "Waste Categories (select all that apply)",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                allCategories.forEach { category ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Checkbox(
-                            checked = category in selectedCategories,
-                            onCheckedChange = { isChecked ->
-                                selectedCategories = if (isChecked)
-                                    selectedCategories + category
-                                else
-                                    selectedCategories - category
-                            }
-                        )
-                        Text(
-                            text = category,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(start = 4.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { categoriesExpanded = !categoriesExpanded }
+                ) {
+                    Text(
+                        text = "Waste Categories (${selectedCategories.size} selected)",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { categoriesExpanded = !categoriesExpanded }) {
+                        Icon(
+                            imageVector = if (categoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (categoriesExpanded) "Collapse" else "Expand"
                         )
                     }
                 }
 
-                // ── Collection Time Range ─────────────────────────────────
-                // Toggle row — driver can choose to include a time range or not
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Checkbox(
-                        checked = includeTimeRange,
-                        onCheckedChange = { includeTimeRange = it }
-                    )
-                    Text(
-                        text = "Set collection time range",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
+                if (categoriesExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        allCategories.forEach { category ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val isChecked = category in selectedCategories
+                                        selectedCategories = if (isChecked)
+                                            selectedCategories - category
+                                        else
+                                            selectedCategories + category
+                                    }
+                            ) {
+                                Checkbox(
+                                    checked = category in selectedCategories,
+                                    onCheckedChange = { isChecked ->
+                                        selectedCategories = if (isChecked)
+                                            selectedCategories + category
+                                        else
+                                            selectedCategories - category
+                                    }
+                                )
+                                Text(
+                                    text = category,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
-                // Show the two time buttons only when the toggle is enabled
-                if (includeTimeRange) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                // ── Collection Time Range ─────────────────────────────────
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text(
+                        text = "Collection Time Range (optional)",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (includeTimeRange) {
+                        TextButton(onClick = { includeTimeRange = false }) {
+                            Text("Clear", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // ---- Start time button ----
+                    OutlinedButton(
+                        onClick = { 
+                            activeTimePicker = "start"
+                            includeTimeRange = true
+                        },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        // ---- Start time button ----
-                        OutlinedButton(
-                            onClick = { activeTimePicker = "start" },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccessTime,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = formatTime(startHour, startMinute),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-
-                        // Separator label
-                        Text(
-                            text = "to",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.align(Alignment.CenterVertically)
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
                         )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (includeTimeRange) formatTime(startHour, startMinute) else "--:--",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
 
-                        // ---- End time button ----
-                        OutlinedButton(
-                            onClick = { activeTimePicker = "end" },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccessTime,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = formatTime(endHour, endMinute),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
+                    // Separator label
+                    Text(
+                        text = "to",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    )
+
+                    // ---- End time button ----
+                    OutlinedButton(
+                        onClick = { 
+                            activeTimePicker = "end"
+                            includeTimeRange = true
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (includeTimeRange) formatTime(endHour, endMinute) else "--:--",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 }
 
