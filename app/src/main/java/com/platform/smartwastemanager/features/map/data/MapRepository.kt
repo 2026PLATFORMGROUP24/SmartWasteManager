@@ -40,6 +40,7 @@ class MapRepository {
                             location   = doc.getGeoPoint("location")
                                 ?: com.google.firebase.firestore.GeoPoint(0.0, 0.0),
                             category   = doc.getString("category") ?: "",
+                            reportType = doc.getString("reportType") ?: "",
                             streetName = doc.getString("streetName") ?: "",
                             timestamp  = doc.getTimestamp("timestamp")
                                 ?: com.google.firebase.Timestamp.now()

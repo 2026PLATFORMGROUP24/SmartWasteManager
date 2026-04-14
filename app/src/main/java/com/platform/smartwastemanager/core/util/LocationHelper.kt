@@ -86,6 +86,35 @@ object LocationHelper {
         }
     }
 
+    /**
+     * Converts an address string to a [GeoPoint] using Android's Geocoder.
+     * 
+     * @param context Application or activity context.
+     * @param addressName The address to search for.
+     * @return GeoPoint if found, null otherwise.
+     */
+    suspend fun getCoordinates(context: Context, addressName: String): GeoPoint? {
+        return try {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+                    geocoder.getFromLocationName(addressName, 1) { addresses ->
+                        val result = addresses.firstOrNull()?.let { addr ->
+                            GeoPoint(addr.latitude, addr.longitude)
+                        }
+                        continuation.resume(result) {}
+                    }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocationName(addressName, 1)
+                addresses?.firstOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Builds a clean street string from an Address object. */
     private fun buildStreetString(address: android.location.Address): String {
         val parts = listOfNotNull(
