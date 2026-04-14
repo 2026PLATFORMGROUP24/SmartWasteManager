@@ -29,7 +29,7 @@ class AppContainer(context: Context) {
 
     // ---- Waste Reports ----
     val reportRepository = ReportRepository()
-    val wasteImageClassifier = WasteImageClassifier()
+    val wasteImageClassifier = WasteImageClassifier(context)
 
     // ---- Map ----
     val mapRepository = MapRepository()

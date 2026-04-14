@@ -42,6 +42,13 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // IMPORTANT: Prevents Gradle from compressing the .tflite model file.
+    // TFLite requires the file to be memory-mapped directly from assets,
+    // which only works if it is NOT compressed in the APK.
+    aaptOptions {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -73,8 +80,12 @@ dependencies {
     implementation(libs.maps.compose)
     implementation(libs.play.services.location)
 
-    // ---- ML Kit ----
+    // ---- ML Kit (kept) ----
     implementation(libs.mlkit.image.labeling)
+
+    // ---- TensorFlow Lite (replaces ML Kit for waste classification) ----
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.support)
 
     // ---- CameraX ----
     implementation(libs.camera.core)
@@ -82,8 +93,7 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
 
-    // Guava — provides com.google.common.util.concurrent.ListenableFuture
-    // which is required at compile time by ProcessCameraProvider.getInstance()
+    // Guava — provides ListenableFuture required by ProcessCameraProvider
     implementation(libs.guava)
 
     // ---- Accompanist ----

@@ -1,17 +1,18 @@
 package com.platform.smartwastemanager.features.report.domain
 
 /**
- * Refined waste categories to better handle sub-types and the "Mixed Waste" priority.
+ * All 8 waste categories used in the app.
  *
- * Hierarchical Logic (Internal):
- * - RECYCLABLE includes: Paper, Plastic, Glass, Metal.
- * - ORGANIC
- * - HAZARDOUS
- * - MIXED_WASTE (Default for anything that doesn't fit or has conflicting high-confidence signals)
+ * These match the Firestore schema and the schedule management checkboxes.
+ * The TFLite classifier maps ImageNet labels into these categories.
  */
 enum class WasteCategory(val displayName: String) {
     RECYCLABLE("Recyclable"),
     ORGANIC("Organic"),
+    PAPER("Paper"),
+    GLASS("Glass"),
+    PLASTIC("Plastic"),
+    METAL("Metal"),
     HAZARDOUS("Hazardous"),
     MIXED_WASTE("Mixed Waste");
 
