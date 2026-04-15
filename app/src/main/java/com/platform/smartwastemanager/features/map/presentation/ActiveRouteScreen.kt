@@ -37,16 +37,14 @@ import com.platform.smartwastemanager.features.map.domain.RouteStop
 import kotlinx.coroutines.launch
 
 /**
- * ActiveRouteScreen — full-screen collection route execution with turn-by-turn directions.
+ * ActiveRouteScreen — full-screen collection route execution.
  *
- * States:
- *   READY       — Map preview + stop list + "Start Route" button.
- *   IN-PROGRESS — Full-screen map with a collapsible/expandable bottom card showing
- *                 the current stop, directions, Open in Maps button, and Collect button.
- *                 The card can be toggled by tapping the drag handle / header area.
- *   COMPLETED   — Celebration card.
- *   CALCULATING — Spinner.
- *   ERROR       — Error card + Go Back.
+ * The map draws the real road-following polyline returned by OSRM (blue line
+ * tracing actual streets). Falls back to straight lines between stops if OSRM
+ * geometry was unavailable.
+ *
+ * The bottom card (stop info + directions + Collect button) is collapsible —
+ * tap the drag handle / header row to collapse or expand it.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -74,7 +72,6 @@ fun ActiveRouteScreen(
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
 
-    // Show collect errors as snackbars without stopping the route
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
             snackbarHostState.showSnackbar((actionState as RouteActionState.Error).message)
@@ -82,7 +79,6 @@ fun ActiveRouteScreen(
         }
     }
 
-    // Pan the camera to the current / first stop whenever route state changes
     LaunchedEffect(routeState) {
         when (val state = routeState) {
             is ActiveRouteUiState.Ready -> {
@@ -94,8 +90,7 @@ fun ActiveRouteScreen(
                 )
             }
             is ActiveRouteUiState.InProgress -> {
-                val current = state.stops.getOrNull(state.currentStopIndex)
-                    ?: return@LaunchedEffect
+                val current = state.stops.getOrNull(state.currentStopIndex) ?: return@LaunchedEffect
                 cameraPositionState.animate(
                     CameraUpdateFactory.newLatLngZoom(
                         LatLng(current.location.latitude, current.location.longitude), 16f
@@ -106,9 +101,7 @@ fun ActiveRouteScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -123,10 +116,7 @@ fun ActiveRouteScreen(
                     .padding(start = 4.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    viewModel.resetRoute()
-                    onNavigateBack()
-                }) {
+                IconButton(onClick = { viewModel.resetRoute(); onNavigateBack() }) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
@@ -148,7 +138,6 @@ fun ActiveRouteScreen(
                 }
             }
 
-            // ---- State-driven content ----
             when (val state = routeState) {
 
                 // ----------------------------------------------------------------
@@ -158,16 +147,11 @@ fun ActiveRouteScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Calculating optimised route…",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "Using free OSRM routing service",
+                            Spacer(Modifier.height(16.dp))
+                            Text("Calculating optimised route…", style = MaterialTheme.typography.bodyMedium)
+                            Text("Using free OSRM routing service",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -177,34 +161,24 @@ fun ActiveRouteScreen(
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.Ready -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-
                         RouteMapWithStops(
                             stops               = state.stops,
                             currentStopIndex    = -1,
+                            roadPolyline        = state.roadPolyline,
                             cameraPositionState = cameraPositionState,
-                            modifier            = Modifier
-                                .fillMaxWidth()
-                                .height(300.dp)
+                            modifier            = Modifier.fillMaxWidth().height(300.dp)
                         )
-
                         StopListPanel(
                             stops            = state.stops,
                             currentStopIndex = -1,
-                            modifier         = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
+                            modifier         = Modifier.fillMaxWidth().weight(1f)
                         )
-
-                        Surface(
-                            tonalElevation = 4.dp,
-                            modifier       = Modifier.fillMaxWidth()
-                        ) {
+                        Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick  = {
                                     scope.launch {
                                         val gp  = if (locationPermissions.allPermissionsGranted)
-                                            LocationHelper.getCurrentLocation(context)
-                                        else null
+                                            LocationHelper.getCurrentLocation(context) else null
                                         val lat = gp?.latitude  ?: state.stops[0].location.latitude
                                         val lng = gp?.longitude ?: state.stops[0].location.longitude
                                         viewModel.startRoute(lat, lng)
@@ -214,14 +188,14 @@ fun ActiveRouteScreen(
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                                     .height(52.dp),
-                                colors = ButtonDefaults.buttonColors(
+                                colors   = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary
                                 )
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text       = "Start Route  •  ${state.stops.size} stop${if (state.stops.size != 1) "s" else ""}",
+                                    "Start Route  •  ${state.stops.size} stop${if (state.stops.size != 1) "s" else ""}",
                                     style      = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -231,32 +205,30 @@ fun ActiveRouteScreen(
                 }
 
                 // ----------------------------------------------------------------
-                // IN PROGRESS — map fills screen, collapsible bottom card
+                // IN PROGRESS — full-screen map + collapsible bottom card
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.InProgress -> {
                     val currentStop = state.stops[state.currentStopIndex]
                     val stopLat     = currentStop.location.latitude
                     val stopLng     = currentStop.location.longitude
 
-                    // Controls whether the full card body is visible.
-                    // Starts expanded. Driver can collapse to see more of the map.
+                    // Starts expanded; driver taps handle to collapse/expand
                     var cardExpanded by remember { mutableStateOf(true) }
 
                     Box(modifier = Modifier.fillMaxSize()) {
 
-                        // Map fills the full space behind the card
+                        // Map behind the card — road polyline drawn here
                         RouteMapWithStops(
                             stops               = state.stops,
                             currentStopIndex    = state.currentStopIndex,
+                            roadPolyline        = state.roadPolyline,
                             cameraPositionState = cameraPositionState,
                             modifier            = Modifier.fillMaxSize()
                         )
 
                         // ---- Collapsible bottom card ----
                         Card(
-                            modifier  = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter),
+                            modifier  = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
                             shape     = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                             colors    = CardDefaults.cardColors(
@@ -265,8 +237,7 @@ fun ActiveRouteScreen(
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
 
-                                // ---- Drag handle / collapse-expand header ----
-                                // Tapping anywhere in this row toggles the card body.
+                                // Always-visible header — tap to toggle
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -274,21 +245,18 @@ fun ActiveRouteScreen(
                                         .padding(horizontal = 20.dp, vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    // Visual drag handle pill
+                                    // Drag-handle pill
                                     Box(
                                         modifier = Modifier
                                             .width(40.dp)
                                             .height(4.dp)
                                             .background(
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    .copy(alpha = 0.4f),
-                                                shape = RoundedCornerShape(2.dp)
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                RoundedCornerShape(2.dp)
                                             )
                                     )
+                                    Spacer(Modifier.height(8.dp))
 
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Always-visible summary row: stop counter + progress + chevron
                                     Row(
                                         modifier              = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -307,23 +275,18 @@ fun ActiveRouteScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-
-                                        // Chevron icon indicating expand/collapse state
                                         Icon(
                                             imageVector        = if (cardExpanded)
                                                 Icons.Default.KeyboardArrowDown
                                             else
                                                 Icons.Default.KeyboardArrowUp,
-                                            contentDescription = if (cardExpanded)
-                                                "Collapse card"
-                                            else
-                                                "Expand card",
-                                            tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp)
+                                            contentDescription = if (cardExpanded) "Collapse" else "Expand",
+                                            tint               = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier           = Modifier.size(24.dp)
                                         )
                                     }
 
-                                    // Progress bar always visible even when collapsed
+                                    // Progress bar — always visible
                                     LinearProgressIndicator(
                                         progress  = {
                                             state.currentStopIndex.toFloat() / state.stops.size.toFloat()
@@ -346,14 +309,10 @@ fun ActiveRouteScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .verticalScroll(rememberScrollState())
-                                            .padding(
-                                                start  = 20.dp,
-                                                end    = 20.dp,
-                                                bottom = 20.dp
-                                            )
+                                            .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
                                     ) {
 
-                                        // Current stop detail card
+                                        // Current stop detail
                                         Card(
                                             colors   = CardDefaults.cardColors(
                                                 containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -361,18 +320,16 @@ fun ActiveRouteScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
-                                                modifier          = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(12.dp),
+                                                modifier          = Modifier.fillMaxWidth().padding(12.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
-                                                    imageVector        = Icons.Default.LocationOn,
+                                                    Icons.Default.LocationOn,
                                                     contentDescription = null,
                                                     tint               = MaterialTheme.colorScheme.primary,
                                                     modifier           = Modifier.size(28.dp)
                                                 )
-                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Spacer(Modifier.width(10.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         text       = currentStop.streetName,
@@ -385,19 +342,19 @@ fun ActiveRouteScreen(
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
+                                                    val rem = state.stops.size - state.currentStopIndex - 1
                                                     Text(
-                                                        text  = "${state.stops.size - state.currentStopIndex - 1} stop${if ((state.stops.size - state.currentStopIndex - 1) != 1) "s" else ""} remaining",
+                                                        text  = "$rem stop${if (rem != 1) "s" else ""} remaining",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                            .copy(alpha = 0.7f)
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                                     )
                                                 }
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Spacer(Modifier.height(12.dp))
 
-                                        // ---- Directions panel ----
+                                        // Directions panel
                                         Card(
                                             colors   = CardDefaults.cardColors(
                                                 containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -405,27 +362,22 @@ fun ActiveRouteScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Column(modifier = Modifier.padding(12.dp)) {
-
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Icon(
-                                                        // Navigation icon lives in Icons.Default (Icons.Filled),
-                                                        // NOT in Icons.AutoMirrored.Filled
-                                                        imageVector        = Icons.Default.Navigation,
+                                                        Icons.Default.Navigation,
                                                         contentDescription = null,
-                                                        tint               = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        modifier           = Modifier.size(18.dp)
+                                                        tint     = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        modifier = Modifier.size(18.dp)
                                                     )
-                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Spacer(Modifier.width(6.dp))
                                                     Text(
-                                                        text       = "Directions",
+                                                        "Directions",
                                                         style      = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.Bold,
                                                         color      = MaterialTheme.colorScheme.onSecondaryContainer
                                                     )
                                                 }
-
-                                                Spacer(modifier = Modifier.height(6.dp))
-
+                                                Spacer(Modifier.height(6.dp))
                                                 when {
                                                     state.directionsLoading -> {
                                                         Row(
@@ -438,38 +390,30 @@ fun ActiveRouteScreen(
                                                                 color       = MaterialTheme.colorScheme.onSecondaryContainer
                                                             )
                                                             Text(
-                                                                text  = "Getting directions…",
+                                                                "Getting directions…",
                                                                 style = MaterialTheme.typography.bodySmall,
                                                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                                                             )
                                                         }
                                                     }
                                                     state.directions.isNotEmpty() -> {
-                                                        Column(
-                                                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                                                        ) {
-                                                            state.directions.forEachIndexed { index, step ->
+                                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                            state.directions.forEachIndexed { i, step ->
                                                                 Text(
-                                                                    text  = "${index + 1}. $step",
+                                                                    "${i + 1}. $step",
                                                                     style = MaterialTheme.typography.bodySmall,
                                                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                                                 )
                                                             }
                                                         }
                                                     }
-                                                    else -> {
-                                                        Text(
-                                                            text  = "No directions available.",
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                                        )
-                                                    }
+                                                    else -> Text(
+                                                        "No directions available.",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
                                                 }
-
-                                                Spacer(modifier = Modifier.height(8.dp))
-
-                                                // "Open in Maps" — uses ButtonDefaults.outlinedButtonColors()
-                                                // OutlinedButtonDefaults does NOT exist in Material 3
+                                                Spacer(Modifier.height(8.dp))
                                                 OutlinedButton(
                                                     onClick  = {
                                                         val uri    = Uri.parse("google.navigation:q=$stopLat,$stopLng&mode=d")
@@ -485,50 +429,35 @@ fun ActiveRouteScreen(
                                                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                                                     )
                                                 ) {
-                                                    Icon(
-                                                        imageVector        = Icons.Default.Map,
-                                                        contentDescription = null,
-                                                        modifier           = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(Modifier.width(6.dp))
                                                     Text("Open in Maps")
                                                 }
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(14.dp))
+                                        Spacer(Modifier.height(14.dp))
 
-                                        // ---- COLLECT button ----
+                                        // Collect button
                                         Button(
                                             onClick  = {
                                                 scope.launch {
                                                     val gp  = if (locationPermissions.allPermissionsGranted)
-                                                        LocationHelper.getCurrentLocation(context)
-                                                    else null
+                                                        LocationHelper.getCurrentLocation(context) else null
                                                     val lat = gp?.latitude  ?: stopLat
                                                     val lng = gp?.longitude ?: stopLng
                                                     viewModel.collectCurrentStop(lat, lng)
                                                 }
                                             },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(56.dp),
+                                            modifier = Modifier.fillMaxWidth().height(56.dp),
                                             colors   = ButtonDefaults.buttonColors(
                                                 containerColor = MaterialTheme.colorScheme.primary
                                             ),
                                             shape    = MaterialTheme.shapes.medium
                                         ) {
-                                            Icon(
-                                                imageVector        = Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                modifier           = Modifier.size(22.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(10.dp))
-                                            Text(
-                                                text       = "Collect",
-                                                style      = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(22.dp))
+                                            Spacer(Modifier.width(10.dp))
+                                            Text("Collect", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -546,29 +475,16 @@ fun ActiveRouteScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier            = Modifier.padding(32.dp)
                         ) {
-                            Icon(
-                                imageVector        = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint               = MaterialTheme.colorScheme.primary,
-                                modifier           = Modifier.size(80.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text       = "Route Complete! ✅",
-                                style      = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text  = "All pickups in '$zoneName' have been collected.",
+                            Icon(Icons.Default.CheckCircle, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(80.dp))
+                            Spacer(Modifier.height(16.dp))
+                            Text("Route Complete! ✅", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(8.dp))
+                            Text("All pickups in '$zoneName' have been collected.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(32.dp))
-                            Button(
-                                onClick  = { viewModel.resetRoute(); onNavigateBack() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(32.dp))
+                            Button(onClick = { viewModel.resetRoute(); onNavigateBack() }, modifier = Modifier.fillMaxWidth()) {
                                 Text("Back to Zones")
                             }
                         }
@@ -580,38 +496,22 @@ fun ActiveRouteScreen(
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.Error -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Card(
-                            modifier = Modifier.padding(24.dp),
-                            colors   = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
+                        Card(modifier = Modifier.padding(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                         ) {
-                            Column(
-                                modifier            = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector        = Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint               = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier           = Modifier.size(40.dp)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text  = state.message,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(onClick = { viewModel.resetRoute(); onNavigateBack() }) {
-                                    Text("Go Back")
-                                }
+                            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(40.dp))
+                                Spacer(Modifier.height(8.dp))
+                                Text(state.message, color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(12.dp))
+                                Button(onClick = { viewModel.resetRoute(); onNavigateBack() }) { Text("Go Back") }
                             }
                         }
                     }
                 }
 
-                // IDLE — transitional spinner
                 is ActiveRouteUiState.Idle -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -627,20 +527,25 @@ fun ActiveRouteScreen(
 // =============================================================================
 
 /**
- * Google Map showing all stops as coloured markers and a straight polyline connecting them.
- * 🟢 Green = collected | 🔵 Azure = current stop | 🔴 Red = upcoming
+ * Google Map showing the route.
  *
- * Note: the polyline draws straight lines between stops. To draw the actual road-following
- * route, decode the OSRM geometry coordinates from OsrmTripResponse and use those as points.
+ * Polyline priority:
+ *   1. If [roadPolyline] is non-empty → draw the actual road-following line from OSRM (blue).
+ *   2. Otherwise → fall back to straight lines between stops (still blue, dashed visual via
+ *      the existing behaviour, still useful when offline or OSRM unavailable).
+ *
+ * Markers:
+ *   🟢 Green  = collected
+ *   🔵 Azure  = current stop (driver is heading here)
+ *   🔴 Red    = upcoming stops
  */
 @Composable
 private fun RouteMapWithStops(
     stops: List<RouteStop>,
     currentStopIndex: Int,
+    roadPolyline: List<LatLng>,
     cameraPositionState: CameraPositionState,
-    modifier: Modifier = Modifier
-        .fillMaxWidth()
-        .height(300.dp)
+    modifier: Modifier = Modifier.fillMaxWidth().height(300.dp)
 ) {
     GoogleMap(
         modifier            = modifier,
@@ -650,14 +555,26 @@ private fun RouteMapWithStops(
             myLocationButtonEnabled = false
         )
     ) {
-        if (stops.size >= 2) {
+        // ---- Road polyline ----
+        if (roadPolyline.isNotEmpty()) {
+            // Real road path from OSRM geometry — thick blue line
             Polyline(
-                points = stops.map { LatLng(it.location.latitude, it.location.longitude) },
-                color  = Color(0xFF1565C0),
-                width  = 8f
+                points    = roadPolyline,
+                color     = Color(0xFF1565C0),
+                width     = 10f,
+                geodesic  = true
+            )
+        } else if (stops.size >= 2) {
+            // Fallback: straight lines between stops
+            Polyline(
+                points   = stops.map { LatLng(it.location.latitude, it.location.longitude) },
+                color    = Color(0xFF1565C0),
+                width    = 8f,
+                geodesic = true
             )
         }
 
+        // ---- Stop markers ----
         stops.forEachIndexed { index, stop ->
             val position = LatLng(stop.location.latitude, stop.location.longitude)
             val hue = when {
@@ -680,9 +597,7 @@ private fun RouteMapWithStops(
 private fun StopListPanel(
     stops: List<RouteStop>,
     currentStopIndex: Int,
-    modifier: Modifier = Modifier
-        .fillMaxWidth()
-        .heightIn(max = 200.dp)
+    modifier: Modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
 ) {
     LazyColumn(
         modifier            = modifier,
@@ -692,10 +607,7 @@ private fun StopListPanel(
         itemsIndexed(stops) { index, stop ->
             val isCurrent   = index == currentStopIndex
             val isCollected = stop.isCollected
-            Row(
-                modifier          = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape    = MaterialTheme.shapes.small,
                     color    = when {
@@ -707,7 +619,7 @@ private fun StopListPanel(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            text       = "${index + 1}",
+                            "${index + 1}",
                             style      = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color      = when {
@@ -718,26 +630,16 @@ private fun StopListPanel(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text       = stop.streetName,
-                        style      = MaterialTheme.typography.bodySmall,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                    )
-                    Text(
-                        text  = stop.category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(stop.streetName, style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal)
+                    Text(stop.category, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (isCollected) {
-                    Icon(
-                        imageVector        = Icons.Default.CheckCircle,
-                        contentDescription = "Collected",
-                        tint               = MaterialTheme.colorScheme.tertiary,
-                        modifier           = Modifier.size(18.dp)
-                    )
+                    Icon(Icons.Default.CheckCircle, contentDescription = "Collected",
+                        tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
                 }
             }
         }

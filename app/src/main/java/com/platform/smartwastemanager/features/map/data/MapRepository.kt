@@ -6,7 +6,9 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.google.android.gms.maps.model.LatLng
 import com.platform.smartwastemanager.features.map.domain.MapPin
+import com.platform.smartwastemanager.features.map.domain.RouteResult
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.channels.awaitClose
@@ -66,13 +68,9 @@ class MapRepository {
     }
 
     // =========================================================================
-    // Zone CRUD — Zones are now GLOBAL (no scheduleDayId)
+    // Zone CRUD — Global zones (no scheduleDayId)
     // =========================================================================
 
-    /**
-     * Returns a real-time stream of ALL zones in the route_zones collection.
-     * Used by ZonePickerScreen so drivers can see all available zones to assign.
-     */
     fun getAllZones(): Flow<List<Zone>> = callbackFlow {
         val listener = firestore.collection("route_zones")
             .addSnapshotListener { snapshot, error ->
@@ -82,10 +80,6 @@ class MapRepository {
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 
-    /**
-     * Returns a real-time stream of ALL zones created by [driverUid].
-     * Used by MapViewModel to show zone overlays on the main map screen.
-     */
     fun getZonesForDriver(driverUid: String): Flow<List<Zone>> = callbackFlow {
         val listener = firestore.collection("route_zones")
             .whereEqualTo("createdBy", driverUid)
@@ -96,15 +90,9 @@ class MapRepository {
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 
-    /**
-     * Fetches a specific set of zones by their Firestore document IDs.
-     * Used when loading the zones assigned to a particular schedule day.
-     * Firestore's whereIn supports up to 30 items per query.
-     */
     suspend fun getZonesById(zoneIds: List<String>): List<Zone> {
         if (zoneIds.isEmpty()) return emptyList()
         return try {
-            // whereIn only supports up to 30 values; chunk if needed
             zoneIds.chunked(30).flatMap { chunk ->
                 firestore.collection("route_zones")
                     .whereIn(FieldPath.documentId(), chunk)
@@ -127,7 +115,6 @@ class MapRepository {
         } catch (e: Exception) { emptyList() }
     }
 
-    /** Shared Firestore → Zone mapping logic. */
     private fun parseZones(
         snapshot: com.google.firebase.firestore.QuerySnapshot?
     ): List<Zone> =
@@ -144,10 +131,6 @@ class MapRepository {
             } catch (e: Exception) { null }
         } ?: emptyList()
 
-    /**
-     * Adds a new global zone. No scheduleDayId is stored — assignment to a
-     * schedule day happens separately via ScheduleRepository.updateScheduleZoneIds().
-     */
     suspend fun addZone(zone: Zone): String {
         val data = mapOf(
             "name"         to zone.name,
@@ -159,7 +142,6 @@ class MapRepository {
         return firestore.collection("route_zones").add(data).await().id
     }
 
-    /** Deletes a zone document. Note: does NOT remove the zoneId from any schedules. */
     suspend fun deleteZone(zoneId: String) {
         firestore.collection("route_zones").document(zoneId).delete().await()
     }
@@ -169,10 +151,16 @@ class MapRepository {
     // =========================================================================
 
     /**
-     * Fetches all pending Regular Pickup reports inside [zone], then uses OSRM
-     * to sort them into the most efficient visit order.
+     * Fetches all pending Regular Pickup reports inside [zone], asks OSRM to
+     * optimise the visit order, and returns a [RouteResult] containing:
+     *   - [RouteResult.stops]        — stops in optimised visit order
+     *   - [RouteResult.roadPolyline] — LatLng points that trace the actual roads
+     *                                  between all stops (from the OSRM geometry).
+     *
+     * If the OSRM call fails the stops are still returned in unoptimised order
+     * and roadPolyline will be empty (the screen falls back to straight lines).
      */
-    suspend fun calculateRouteForZone(zone: Zone): List<RouteStop> {
+    suspend fun calculateRouteForZone(zone: Zone): RouteResult {
         val snapshot = firestore.collection("waste_reports")
             .whereEqualTo("status", "pending")
             .whereEqualTo("reportType", "Regular Pickup")
@@ -183,10 +171,10 @@ class MapRepository {
             try {
                 val gp = doc.getGeoPoint("location") ?: return@mapNotNull null
                 RouteStop(
-                    reportId   = doc.id,
-                    location   = gp,
-                    streetName = doc.getString("streetName") ?: "Unknown Street",
-                    category   = doc.getString("category") ?: "Unknown",
+                    reportId    = doc.id,
+                    location    = gp,
+                    streetName  = doc.getString("streetName") ?: "Unknown Street",
+                    category    = doc.getString("category") ?: "Unknown",
                     isCollected = false
                 )
             } catch (e: Exception) { null }
@@ -199,7 +187,8 @@ class MapRepository {
             ) <= zone.radiusMeters
         }
 
-        if (stopsInZone.size < 2) return stopsInZone
+        // Only one stop — no need to call OSRM, no polyline
+        if (stopsInZone.size < 2) return RouteResult(stops = stopsInZone, roadPolyline = emptyList())
 
         val coords = stopsInZone.joinToString(";") {
             "${it.location.longitude},${it.location.latitude}"
@@ -207,80 +196,88 @@ class MapRepository {
 
         return try {
             val resp = osrmService.getOptimisedTrip(coords)
+
             if (resp.code == "Ok" && resp.waypoints.size == stopsInZone.size) {
-                stopsInZone.mapIndexed { i, stop -> resp.waypoints[i].waypointIndex to stop }
-                    .sortedBy { it.first }.map { it.second }
-            } else stopsInZone
-        } catch (e: Exception) { stopsInZone }
+
+                // Re-order stops using the waypoint_index OSRM returns
+                val orderedStops = stopsInZone
+                    .mapIndexed { i, stop -> resp.waypoints[i].waypointIndex to stop }
+                    .sortedBy { it.first }
+                    .map { it.second }
+
+                // Convert the OSRM GeoJSON geometry coordinates [lng, lat] → LatLng
+                // This is the road-following polyline for the entire route
+                val roadPolyline = resp.trips.firstOrNull()
+                    ?.geometry
+                    ?.coordinates
+                    ?.mapNotNull { coord ->
+                        // OSRM returns [longitude, latitude]
+                        if (coord.size >= 2) LatLng(coord[1], coord[0]) else null
+                    } ?: emptyList()
+
+                RouteResult(stops = orderedStops, roadPolyline = roadPolyline)
+
+            } else {
+                // OSRM responded but not "Ok" — return unordered stops, no polyline
+                RouteResult(stops = stopsInZone, roadPolyline = emptyList())
+            }
+        } catch (e: Exception) {
+            // Network/parse failure — return unordered stops, no polyline
+            RouteResult(stops = stopsInZone, roadPolyline = emptyList())
+        }
     }
 
     /**
-     * Fetches turn-by-turn driving directions from [fromLat]/[fromLng] to [toLat]/[toLng].
-     * Returns a list of human-readable instruction strings, one per maneuver step.
-     * Returns an empty list if the request fails — the UI handles this gracefully.
+     * Fetches turn-by-turn driving directions from the driver to a single stop.
+     * Uses the OSRM /route endpoint (not /trip) which returns step instructions.
+     * Returns an empty list on any failure — the UI handles this gracefully.
      */
     suspend fun getDirectionsToStop(
         fromLat: Double, fromLng: Double,
         toLat: Double,   toLng: Double
     ): List<String> {
         return try {
-            // OSRM expects longitude,latitude order
-            val coords = "$fromLng,$fromLat;$toLng,$toLat"
+            val coords   = "$fromLng,$fromLat;$toLng,$toLat"
             val response = osrmService.getRoute(coords, steps = true)
-
             if (response.code != "Ok") return emptyList()
-
             val steps = response.routes.firstOrNull()?.legs?.firstOrNull()?.steps
                 ?: return emptyList()
-
-            steps.mapNotNull { step ->
-                buildDirectionString(step)
-            }.filter { it.isNotBlank() }
+            steps.mapNotNull { buildDirectionString(it) }.filter { it.isNotBlank() }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
-    /**
-     * Converts an [OsrmStep] into a human-readable direction string.
-     * Example output: "Turn right onto Oak Avenue (250 m)"
-     */
     private fun buildDirectionString(step: OsrmStep): String? {
         val type     = step.maneuver.type
         val modifier = step.maneuver.modifier
         val road     = step.name
         val distM    = step.distance.toInt()
-        val distStr  = if (distM >= 1000) "${"%.1f".format(distM / 1000.0)} km"
-        else "$distM m"
+        val distStr  = if (distM >= 1000) "${"%.1f".format(distM / 1000.0)} km" else "$distM m"
 
-        // Build the action phrase
         val action = when (type) {
-            "depart"     -> "Head ${modifier.ifBlank { "forward" }}"
-            "arrive"     -> return "🏁 Arrive at destination"
-            "turn"       -> when (modifier) {
-                "left"        -> "Turn left"
-                "right"       -> "Turn right"
-                "slight left" -> "Turn slight left"
-                "slight right"-> "Turn slight right"
-                "sharp left"  -> "Turn sharp left"
-                "sharp right" -> "Turn sharp right"
-                "uturn"       -> "Make a U-turn"
-                else          -> "Continue"
+            "depart"          -> "Head ${modifier.ifBlank { "forward" }}"
+            "arrive"          -> return "🏁 Arrive at destination"
+            "turn"            -> when (modifier) {
+                "left"         -> "Turn left"
+                "right"        -> "Turn right"
+                "slight left"  -> "Turn slight left"
+                "slight right" -> "Turn slight right"
+                "sharp left"   -> "Turn sharp left"
+                "sharp right"  -> "Turn sharp right"
+                "uturn"        -> "Make a U-turn"
+                else           -> "Continue"
             }
-            "new name"   -> "Continue"
-            "continue"   -> "Continue straight"
-            "merge"      -> "Merge ${modifier.ifBlank { "" }}"
-            "roundabout" -> "Enter the roundabout"
+            "new name"        -> "Continue"
+            "continue"        -> "Continue straight"
+            "merge"           -> "Merge ${modifier.ifBlank { "" }}"
+            "roundabout"      -> "Enter the roundabout"
             "exit roundabout" -> "Exit the roundabout"
-            "fork"       -> "Keep ${modifier.ifBlank { "straight" }} at the fork"
-            else         -> "Continue"
+            "fork"            -> "Keep ${modifier.ifBlank { "straight" }} at the fork"
+            else              -> "Continue"
         }
 
-        return if (road.isNotBlank()) {
-            "$action onto $road ($distStr)"
-        } else {
-            "$action ($distStr)"
-        }
+        return if (road.isNotBlank()) "$action onto $road ($distStr)" else "$action ($distStr)"
     }
 
     suspend fun collectStop(reportId: String) {
