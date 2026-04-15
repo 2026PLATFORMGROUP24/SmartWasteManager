@@ -2,6 +2,7 @@ package com.platform.smartwastemanager.core.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -9,6 +10,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.auth.presentation.LoginScreen
@@ -32,6 +34,7 @@ import com.platform.smartwastemanager.features.report.presentation.ReportFormScr
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.report.presentation.ScanScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavHost(
@@ -133,6 +136,13 @@ fun AppNavHost(
             val schedule = schedules.find { it.id == scheduleDayId }
                 ?: CollectionDay(id = scheduleDayId, dayOfWeek = scheduleDayName)
 
+            // Coroutine scope used to fetch GPS location before launching the route.
+            // rememberCoroutineScope() is safe here — this is a @Composable lambda context.
+            val zoneListScope = rememberCoroutineScope()
+
+            // navController.context resolves to the Activity context, safe for LocationHelper.
+            val context = navController.context
+
             ZoneListScreen(
                 viewModel      = routeViewModel,
                 schedule       = schedule,
@@ -144,8 +154,29 @@ fun AppNavHost(
                 },
                 onManageZones  = { navController.navigate(Routes.MANAGE_ZONES) },
                 onLoadRoute    = { zone ->
-                    routeViewModel.loadRouteForZone(zone)
-                    navController.navigate(Routes.buildActiveRoute(zone.name))
+                    // Launch a coroutine to get current GPS location BEFORE asking OSRM
+                    // to calculate the route, so the first stop is always the nearest one
+                    // to the driver's physical position.
+                    zoneListScope.launch {
+                        val gp = try {
+                            LocationHelper.getCurrentLocation(context)
+                        } catch (e: Exception) {
+                            null
+                        }
+                        val driverLat = gp?.latitude  ?: 0.0
+                        val driverLng = gp?.longitude ?: 0.0
+
+                        // Calculate the route with driver location (or 0.0/0.0 fallback)
+                        routeViewModel.loadRouteForZone(
+                            zone      = zone,
+                            driverLat = driverLat,
+                            driverLng = driverLng
+                        )
+
+                        // Navigate to the active route screen after kicking off the calculation.
+                        // The screen will show "Calculating…" while loadRouteForZone runs.
+                        navController.navigate(Routes.buildActiveRoute(zone.name))
+                    }
                 }
             )
         }
@@ -192,6 +223,8 @@ fun AppNavHost(
         }
 
         // ActiveRouteScreen — turn-by-turn driving route execution.
+        // loadRouteForZone() is already in-flight (started from onLoadRoute above)
+        // so this screen opens directly in the Calculating state.
         composable(
             route     = Routes.ACTIVE_ROUTE,
             arguments = listOf(navArgument("zoneName") { type = NavType.StringType })

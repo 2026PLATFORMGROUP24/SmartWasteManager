@@ -48,10 +48,11 @@ sealed class ActiveRouteUiState {
 
     /**
      * Route calculated and ready to start.
+     * Stops are already sorted: nearest to driver → optimal order for the rest.
      *
-     * @param stops        Stops in optimised visit order.
+     * @param stops        Stops in optimised visit order (nearest-first from driver).
      * @param roadPolyline LatLng points tracing the actual roads between all stops.
-     *                     Empty if OSRM geometry was unavailable (falls back to straight lines).
+     *                     Empty if OSRM geometry was unavailable.
      */
     data class Ready(
         val stops: List<RouteStop>,
@@ -89,8 +90,9 @@ sealed class ActiveRouteUiState {
  *   2. Zones assigned to a specific schedule day.
  *   3. Assigning / unassigning zones to a schedule day.
  *   4. Creating / deleting global zones.
- *   5. Calculating the optimised collection route (stops + road polyline).
- *   6. Driving the active route: collecting stops + fetching directions.
+ *   5. Calculating the optimised collection route, starting from the driver's
+ *      current GPS location so the first stop is always the nearest one.
+ *   6. Driving the active route: collecting stops + fetching step-by-step directions.
  */
 class RouteViewModel(
     private val mapRepository: MapRepository,
@@ -240,14 +242,23 @@ class RouteViewModel(
     // =========================================================================
 
     /**
-     * Calls OSRM to calculate the optimised route for [zone].
-     * On success: state → Ready with stops AND road polyline.
+     * Calculates the optimised route for [zone], routing from the driver's
+     * current position ([driverLat], [driverLng]) so stop[0] is always the
+     * nearest stop to the driver.
+     *
+     * Call this from the UI AFTER obtaining the driver's GPS location.
+     * Pass 0.0, 0.0 if location is unavailable — OSRM will optimise without a
+     * starting point and the fallback sorts stops by proximity to zone centre.
      */
-    fun loadRouteForZone(zone: Zone) {
+    fun loadRouteForZone(zone: Zone, driverLat: Double = 0.0, driverLng: Double = 0.0) {
         viewModelScope.launch {
             _activeRouteState.value = ActiveRouteUiState.Calculating
             try {
-                val result = mapRepository.calculateRouteForZone(zone)
+                val result = mapRepository.calculateRouteForZone(
+                    zone      = zone,
+                    driverLat = driverLat,
+                    driverLng = driverLng
+                )
                 _activeRouteState.value = if (result.stops.isEmpty()) {
                     ActiveRouteUiState.Error(
                         "No pending Regular Pickup reports found in this zone."
@@ -267,8 +278,10 @@ class RouteViewModel(
     }
 
     /**
-     * Transitions Ready → InProgress at stop 0, carrying the road polyline
-     * forward into InProgress so the map can keep drawing the full road path.
+     * Transitions Ready → InProgress at stop 0.
+     * The route is already ordered nearest-first from the driver's start location,
+     * so stop[0] is always the closest stop. Directions to stop[0] are fetched
+     * using the driver's current position at the moment they tap "Start Route".
      */
     fun startRoute(driverLat: Double, driverLng: Double) {
         val readyState = _activeRouteState.value as? ActiveRouteUiState.Ready ?: return
@@ -283,7 +296,7 @@ class RouteViewModel(
 
     /**
      * Marks the current stop as collected, advances to the next stop,
-     * keeps the road polyline, and fetches directions to the next stop.
+     * carries the road polyline forward, and fetches directions to the next stop.
      */
     fun collectCurrentStop(driverLat: Double, driverLng: Double) {
         val inProgress  = _activeRouteState.value as? ActiveRouteUiState.InProgress ?: return
@@ -305,7 +318,7 @@ class RouteViewModel(
                     _activeRouteState.value = ActiveRouteUiState.InProgress(
                         stops             = updatedStops,
                         currentStopIndex  = nextIndex,
-                        roadPolyline      = inProgress.roadPolyline, // keep the same road polyline
+                        roadPolyline      = inProgress.roadPolyline,
                         directionsLoading = true
                     )
                     fetchDirectionsToStop(driverLat, driverLng, updatedStops[nextIndex])
@@ -318,10 +331,6 @@ class RouteViewModel(
         }
     }
 
-    /**
-     * Fetches turn-by-turn text directions from the driver's position to [stop].
-     * Silently ignores failures — the UI shows an empty panel in that case.
-     */
     private fun fetchDirectionsToStop(driverLat: Double, driverLng: Double, stop: RouteStop) {
         viewModelScope.launch {
             val directions = mapRepository.getDirectionsToStop(

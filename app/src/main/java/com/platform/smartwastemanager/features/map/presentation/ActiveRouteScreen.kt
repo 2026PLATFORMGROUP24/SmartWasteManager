@@ -39,12 +39,13 @@ import kotlinx.coroutines.launch
 /**
  * ActiveRouteScreen — full-screen collection route execution.
  *
- * The map draws the real road-following polyline returned by OSRM (blue line
- * tracing actual streets). Falls back to straight lines between stops if OSRM
- * geometry was unavailable.
- *
- * The bottom card (stop info + directions + Collect button) is collapsible —
- * tap the drag handle / header row to collapse or expand it.
+ * Key behaviours:
+ *  - GPS is fetched BEFORE calling loadRouteForZone so OSRM routes driver → nearest stop first.
+ *  - Road-following polyline (from OSRM geometry) is drawn on the map.
+ *  - The bottom card (directions + stop detail + Collect) is collapsible.
+ *  - When COLLAPSED: a floating "Collect" button sits just above the card so
+ *    the driver can tap it without expanding.
+ *  - When EXPANDED: the Collect button is inside the card as usual.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -90,7 +91,8 @@ fun ActiveRouteScreen(
                 )
             }
             is ActiveRouteUiState.InProgress -> {
-                val current = state.stops.getOrNull(state.currentStopIndex) ?: return@LaunchedEffect
+                val current = state.stops.getOrNull(state.currentStopIndex)
+                    ?: return@LaunchedEffect
                 cameraPositionState.animate(
                     CameraUpdateFactory.newLatLngZoom(
                         LatLng(current.location.latitude, current.location.longitude), 16f
@@ -148,10 +150,15 @@ fun ActiveRouteScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(16.dp))
-                            Text("Calculating optimised route…", style = MaterialTheme.typography.bodyMedium)
-                            Text("Using free OSRM routing service",
+                            Text(
+                                "Calculating optimised route…",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "Routing from your current location",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -161,6 +168,7 @@ fun ActiveRouteScreen(
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.Ready -> {
                     Column(modifier = Modifier.fillMaxSize()) {
+
                         RouteMapWithStops(
                             stops               = state.stops,
                             currentStopIndex    = -1,
@@ -168,11 +176,13 @@ fun ActiveRouteScreen(
                             cameraPositionState = cameraPositionState,
                             modifier            = Modifier.fillMaxWidth().height(300.dp)
                         )
+
                         StopListPanel(
                             stops            = state.stops,
                             currentStopIndex = -1,
                             modifier         = Modifier.fillMaxWidth().weight(1f)
                         )
+
                         Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick  = {
@@ -212,12 +222,22 @@ fun ActiveRouteScreen(
                     val stopLat     = currentStop.location.latitude
                     val stopLng     = currentStop.location.longitude
 
-                    // Starts expanded; driver taps handle to collapse/expand
                     var cardExpanded by remember { mutableStateOf(true) }
+
+                    // Reusable collect action — same logic used by both buttons
+                    val onCollect: () -> Unit = {
+                        scope.launch {
+                            val gp  = if (locationPermissions.allPermissionsGranted)
+                                LocationHelper.getCurrentLocation(context) else null
+                            val lat = gp?.latitude  ?: stopLat
+                            val lng = gp?.longitude ?: stopLng
+                            viewModel.collectCurrentStop(lat, lng)
+                        }
+                    }
 
                     Box(modifier = Modifier.fillMaxSize()) {
 
-                        // Map behind the card — road polyline drawn here
+                        // ---- Map fills entire space behind the card ----
                         RouteMapWithStops(
                             stops               = state.stops,
                             currentStopIndex    = state.currentStopIndex,
@@ -226,9 +246,43 @@ fun ActiveRouteScreen(
                             modifier            = Modifier.fillMaxSize()
                         )
 
+                        // ---- Floating "Collect" button — only shown when card is COLLAPSED ----
+                        // Uses a plain `if` rather than AnimatedVisibility to avoid the
+                        // ColumnScope receiver conflict that occurs inside a Box.
+                        // Positioned just above the collapsed card header (~88 dp tall).
+                        if (!cardExpanded) {
+                            Button(
+                                onClick   = { onCollect() },
+                                modifier  = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 92.dp)
+                                    .fillMaxWidth()
+                                    .height(52.dp),
+                                colors    = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                shape     = MaterialTheme.shapes.medium,
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier           = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Collect  •  Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
+                                    style      = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // ---- Collapsible bottom card ----
                         Card(
-                            modifier  = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                            modifier  = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter),
                             shape     = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                             colors    = CardDefaults.cardColors(
@@ -237,7 +291,7 @@ fun ActiveRouteScreen(
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
 
-                                // Always-visible header — tap to toggle
+                                // ---- Always-visible header — tap to toggle ----
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -251,7 +305,8 @@ fun ActiveRouteScreen(
                                             .width(40.dp)
                                             .height(4.dp)
                                             .background(
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                    .copy(alpha = 0.4f),
                                                 RoundedCornerShape(2.dp)
                                             )
                                     )
@@ -280,7 +335,8 @@ fun ActiveRouteScreen(
                                                 Icons.Default.KeyboardArrowDown
                                             else
                                                 Icons.Default.KeyboardArrowUp,
-                                            contentDescription = if (cardExpanded) "Collapse" else "Expand",
+                                            contentDescription = if (cardExpanded)
+                                                "Collapse" else "Expand",
                                             tint               = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier           = Modifier.size(24.dp)
                                         )
@@ -288,8 +344,9 @@ fun ActiveRouteScreen(
 
                                     // Progress bar — always visible
                                     LinearProgressIndicator(
-                                        progress  = {
-                                            state.currentStopIndex.toFloat() / state.stops.size.toFloat()
+                                        progress   = {
+                                            state.currentStopIndex.toFloat() /
+                                                    state.stops.size.toFloat()
                                         },
                                         modifier   = Modifier
                                             .fillMaxWidth()
@@ -299,7 +356,9 @@ fun ActiveRouteScreen(
                                     )
                                 }
 
-                                // ---- Expandable body ----
+                                // ---- Expandable body — AnimatedVisibility is safe here
+                                // because it is a direct child of a Column, which provides
+                                // the required ColumnScope receiver. ----
                                 AnimatedVisibility(
                                     visible = cardExpanded,
                                     enter   = expandVertically(),
@@ -309,10 +368,14 @@ fun ActiveRouteScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .verticalScroll(rememberScrollState())
-                                            .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
+                                            .padding(
+                                                start  = 20.dp,
+                                                end    = 20.dp,
+                                                bottom = 20.dp
+                                            )
                                     ) {
 
-                                        // Current stop detail
+                                        // Current stop detail card
                                         Card(
                                             colors   = CardDefaults.cardColors(
                                                 containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -320,14 +383,16 @@ fun ActiveRouteScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
-                                                modifier          = Modifier.fillMaxWidth().padding(12.dp),
+                                                modifier          = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
                                                     Icons.Default.LocationOn,
                                                     contentDescription = null,
-                                                    tint               = MaterialTheme.colorScheme.primary,
-                                                    modifier           = Modifier.size(28.dp)
+                                                    tint     = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(28.dp)
                                                 )
                                                 Spacer(Modifier.width(10.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
@@ -342,11 +407,13 @@ fun ActiveRouteScreen(
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
-                                                    val rem = state.stops.size - state.currentStopIndex - 1
+                                                    val rem = state.stops.size -
+                                                            state.currentStopIndex - 1
                                                     Text(
                                                         text  = "$rem stop${if (rem != 1) "s" else ""} remaining",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            .copy(alpha = 0.7f)
                                                     )
                                                 }
                                             }
@@ -397,7 +464,9 @@ fun ActiveRouteScreen(
                                                         }
                                                     }
                                                     state.directions.isNotEmpty() -> {
-                                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                        Column(
+                                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                                        ) {
                                                             state.directions.forEachIndexed { i, step ->
                                                                 Text(
                                                                     "${i + 1}. $step",
@@ -416,20 +485,32 @@ fun ActiveRouteScreen(
                                                 Spacer(Modifier.height(8.dp))
                                                 OutlinedButton(
                                                     onClick  = {
-                                                        val uri    = Uri.parse("google.navigation:q=$stopLat,$stopLng&mode=d")
-                                                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                                        val uri    = Uri.parse(
+                                                            "google.navigation:q=$stopLat,$stopLng&mode=d"
+                                                        )
+                                                        val intent = Intent(
+                                                            Intent.ACTION_VIEW, uri
+                                                        ).apply {
                                                             setPackage("com.google.android.apps.maps")
                                                         }
                                                         context.startActivity(
-                                                            Intent.createChooser(intent, "Open with navigation app")
+                                                            Intent.createChooser(
+                                                                intent,
+                                                                "Open with navigation app"
+                                                            )
                                                         )
                                                     },
                                                     modifier = Modifier.fillMaxWidth(),
                                                     colors   = ButtonDefaults.outlinedButtonColors(
-                                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        contentColor = MaterialTheme.colorScheme
+                                                            .onSecondaryContainer
                                                     )
                                                 ) {
-                                                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Icon(
+                                                        Icons.Default.Map,
+                                                        contentDescription = null,
+                                                        modifier           = Modifier.size(16.dp)
+                                                    )
                                                     Spacer(Modifier.width(6.dp))
                                                     Text("Open in Maps")
                                                 }
@@ -438,26 +519,28 @@ fun ActiveRouteScreen(
 
                                         Spacer(Modifier.height(14.dp))
 
-                                        // Collect button
+                                        // Collect button inside the expanded card
                                         Button(
-                                            onClick  = {
-                                                scope.launch {
-                                                    val gp  = if (locationPermissions.allPermissionsGranted)
-                                                        LocationHelper.getCurrentLocation(context) else null
-                                                    val lat = gp?.latitude  ?: stopLat
-                                                    val lng = gp?.longitude ?: stopLng
-                                                    viewModel.collectCurrentStop(lat, lng)
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                                            onClick  = { onCollect() },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(56.dp),
                                             colors   = ButtonDefaults.buttonColors(
                                                 containerColor = MaterialTheme.colorScheme.primary
                                             ),
                                             shape    = MaterialTheme.shapes.medium
                                         ) {
-                                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(22.dp))
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                modifier           = Modifier.size(22.dp)
+                                            )
                                             Spacer(Modifier.width(10.dp))
-                                            Text("Collect", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "Collect",
+                                                style      = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
@@ -475,18 +558,29 @@ fun ActiveRouteScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier            = Modifier.padding(32.dp)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(80.dp))
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint     = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(80.dp)
+                            )
                             Spacer(Modifier.height(16.dp))
-                            Text("Route Complete! ✅", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Route Complete! ✅",
+                                style      = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold
+                            )
                             Spacer(Modifier.height(8.dp))
-                            Text("All pickups in '$zoneName' have been collected.",
+                            Text(
+                                "All pickups in '$zoneName' have been collected.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(Modifier.height(32.dp))
-                            Button(onClick = { viewModel.resetRoute(); onNavigateBack() }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Back to Zones")
-                            }
+                            Button(
+                                onClick  = { viewModel.resetRoute(); onNavigateBack() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Back to Zones") }
                         }
                     }
                 }
@@ -496,17 +590,32 @@ fun ActiveRouteScreen(
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.Error -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Card(modifier = Modifier.padding(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        Card(
+                            modifier = Modifier.padding(24.dp),
+                            colors   = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
                         ) {
-                            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.ErrorOutline, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(40.dp))
+                            Column(
+                                modifier            = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint     = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(40.dp)
+                                )
                                 Spacer(Modifier.height(8.dp))
-                                Text(state.message, color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    state.message,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
                                 Spacer(Modifier.height(12.dp))
-                                Button(onClick = { viewModel.resetRoute(); onNavigateBack() }) { Text("Go Back") }
+                                Button(onClick = {
+                                    viewModel.resetRoute(); onNavigateBack()
+                                }) { Text("Go Back") }
                             }
                         }
                     }
@@ -530,14 +639,10 @@ fun ActiveRouteScreen(
  * Google Map showing the route.
  *
  * Polyline priority:
- *   1. If [roadPolyline] is non-empty → draw the actual road-following line from OSRM (blue).
- *   2. Otherwise → fall back to straight lines between stops (still blue, dashed visual via
- *      the existing behaviour, still useful when offline or OSRM unavailable).
+ *   1. [roadPolyline] non-empty → real road path from OSRM (thick blue, geodesic).
+ *   2. Empty → straight fallback lines between stops.
  *
- * Markers:
- *   🟢 Green  = collected
- *   🔵 Azure  = current stop (driver is heading here)
- *   🔴 Red    = upcoming stops
+ * Markers: 🟢 Green = collected | 🔵 Azure = current stop | 🔴 Red = upcoming
  */
 @Composable
 private fun RouteMapWithStops(
@@ -545,7 +650,9 @@ private fun RouteMapWithStops(
     currentStopIndex: Int,
     roadPolyline: List<LatLng>,
     cameraPositionState: CameraPositionState,
-    modifier: Modifier = Modifier.fillMaxWidth().height(300.dp)
+    modifier: Modifier = Modifier
+        .fillMaxWidth()
+        .height(300.dp)
 ) {
     GoogleMap(
         modifier            = modifier,
@@ -555,17 +662,14 @@ private fun RouteMapWithStops(
             myLocationButtonEnabled = false
         )
     ) {
-        // ---- Road polyline ----
         if (roadPolyline.isNotEmpty()) {
-            // Real road path from OSRM geometry — thick blue line
             Polyline(
-                points    = roadPolyline,
-                color     = Color(0xFF1565C0),
-                width     = 10f,
-                geodesic  = true
+                points   = roadPolyline,
+                color    = Color(0xFF1565C0),
+                width    = 10f,
+                geodesic = true
             )
         } else if (stops.size >= 2) {
-            // Fallback: straight lines between stops
             Polyline(
                 points   = stops.map { LatLng(it.location.latitude, it.location.longitude) },
                 color    = Color(0xFF1565C0),
@@ -574,7 +678,6 @@ private fun RouteMapWithStops(
             )
         }
 
-        // ---- Stop markers ----
         stops.forEachIndexed { index, stop ->
             val position = LatLng(stop.location.latitude, stop.location.longitude)
             val hue = when {
@@ -597,7 +700,9 @@ private fun RouteMapWithStops(
 private fun StopListPanel(
     stops: List<RouteStop>,
     currentStopIndex: Int,
-    modifier: Modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
+    modifier: Modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(max = 200.dp)
 ) {
     LazyColumn(
         modifier            = modifier,
@@ -607,7 +712,10 @@ private fun StopListPanel(
         itemsIndexed(stops) { index, stop ->
             val isCurrent   = index == currentStopIndex
             val isCollected = stop.isCollected
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier          = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Surface(
                     shape    = MaterialTheme.shapes.small,
                     color    = when {
@@ -632,14 +740,24 @@ private fun StopListPanel(
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stop.streetName, style = MaterialTheme.typography.bodySmall,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal)
-                    Text(stop.category, style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stop.streetName,
+                        style      = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                    )
+                    Text(
+                        stop.category,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 if (isCollected) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = "Collected",
-                        tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Collected",
+                        tint     = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
