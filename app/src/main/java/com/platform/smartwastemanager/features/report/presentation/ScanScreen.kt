@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -42,9 +41,13 @@ import java.util.concurrent.Executors
 /**
  * Camera preview screen.
  *
- * - Camera bound to full screen.
- * - Layered UI for controls (Back, Capture, Gallery).
- * - Target box overlay for better accuracy.
+ * Flow:
+ *   1. User sees live camera preview with a 70% target box overlay.
+ *   2. User taps Capture (or picks from Gallery).
+ *   3. The bitmap is stored in [pendingCropBitmap] state.
+ *   4. CropScreen is shown on top — user adjusts the crop rectangle.
+ *   5. On "Use Crop": classifyImage() is called and we navigate to the form.
+ *   6. On "Retake": pendingCropBitmap is cleared, camera preview returns.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -61,10 +64,16 @@ fun ScanScreen(
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     var isCapturing         by remember { mutableStateOf(false) }
 
+    // When this is non-null, CropScreen is shown instead of the camera preview.
+    // Set after a capture or gallery pick; cleared when the user taps "Retake".
+    var pendingCropBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor   = remember { ContextCompat.getMainExecutor(context) }
 
-    // Launcher for selecting an image from the gallery
+    // ---- Gallery picker ----
+    // Loads the bitmap and routes it through CropScreen instead of
+    // calling classifyImage() directly.
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -79,8 +88,8 @@ fun ScanScreen(
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     }
                 }
-                viewModel.classifyImage(bitmap)
-                onNavigateToForm()
+                // Store in state — this triggers CropScreen to appear
+                pendingCropBitmap = bitmap
             } catch (e: Exception) {
                 Log.e("ScanScreen", "Gallery import failed", e)
             }
@@ -93,13 +102,47 @@ fun ScanScreen(
         if (!cameraPermission.status.isGranted) cameraPermission.launchPermissionRequest()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    // ================================================================
+    // CROP SCREEN OVERLAY
+    // When a bitmap is pending crop, show CropScreen on top of everything.
+    // This uses a simple conditional rather than navigation so the camera
+    // preview is still alive underneath (no re-binding on retake).
+    // ================================================================
+    val cropBitmap = pendingCropBitmap
+    if (cropBitmap != null) {
+        CropScreen(
+            bitmap          = cropBitmap,
+            viewModel       = viewModel,
+            onCropConfirmed = {
+                // CropScreen called viewModel.classifyImage() already — just navigate
+                pendingCropBitmap = null
+                onNavigateToForm()
+            },
+            onRetake = {
+                // Clear the pending bitmap — camera preview reappears
+                pendingCropBitmap = null
+                isCapturing = false
+            }
+        )
+        // Return early so the camera UI is not drawn on top of CropScreen
+        return
+    }
+
+    // ================================================================
+    // CAMERA PREVIEW + CONTROLS
+    // ================================================================
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(Color.Black)
+    ) {
 
         if (!cameraPermission.status.isGranted) {
             // ---- Permission not yet granted ----
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.align(Alignment.Center).padding(24.dp)
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
             ) {
                 Text(
                     text  = "Camera permission is required to scan waste.",
@@ -112,6 +155,7 @@ fun ScanScreen(
                 }
             }
         } else {
+
             // ---- Live camera preview (Full Screen) ----
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -128,57 +172,34 @@ fun ScanScreen(
             )
 
             // ---- Target Box Overlay (70% center area) ----
+            // This matches the default crop rect shown in CropScreen.
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val canvasWidth = size.width
+                val canvasWidth  = size.width
                 val canvasHeight = size.height
-                val boxWidth = canvasWidth * 0.7f
-                val boxHeight = canvasHeight * 0.7f
-                
-                val left = (canvasWidth - boxWidth) / 2
-                val top = (canvasHeight - boxHeight) / 2
-                
-                // Draw a subtle focus frame
-                val cornerLength = 40.dp.toPx()
-                val strokeWidth = 3.dp.toPx()
-                val color = Color.White.copy(alpha = 0.7f)
+                val boxWidth     = canvasWidth  * 0.7f
+                val boxHeight    = canvasHeight * 0.7f
+                val left         = (canvasWidth  - boxWidth)  / 2
+                val top          = (canvasHeight - boxHeight) / 2
 
-                // Top Left
+                val cornerLength = 40.dp.toPx()
+                val strokeWidth  = 3.dp.toPx()
+                val color        = Color.White.copy(alpha = 0.7f)
+
+                // Corner bracket lines
                 drawLine(color, Offset(left, top), Offset(left + cornerLength, top), strokeWidth)
                 drawLine(color, Offset(left, top), Offset(left, top + cornerLength), strokeWidth)
-
-                // Top Right
                 drawLine(color, Offset(left + boxWidth, top), Offset(left + boxWidth - cornerLength, top), strokeWidth)
                 drawLine(color, Offset(left + boxWidth, top), Offset(left + boxWidth, top + cornerLength), strokeWidth)
-
-                // Bottom Left
                 drawLine(color, Offset(left, top + boxHeight), Offset(left + cornerLength, top + boxHeight), strokeWidth)
                 drawLine(color, Offset(left, top + boxHeight), Offset(left, top + boxHeight - cornerLength), strokeWidth)
-
-                // Bottom Right
                 drawLine(color, Offset(left + boxWidth, top + boxHeight), Offset(left + boxWidth - cornerLength, top + boxHeight), strokeWidth)
                 drawLine(color, Offset(left + boxWidth, top + boxHeight), Offset(left + boxWidth, top + boxHeight - cornerLength), strokeWidth)
-                
-                // Dim the area outside the box slightly
-                drawRect(
-                    color = Color.Black.copy(alpha = 0.3f),
-                    topLeft = Offset.Zero,
-                    size = Size(canvasWidth, top)
-                )
-                drawRect(
-                    color = Color.Black.copy(alpha = 0.3f),
-                    topLeft = Offset(0f, top + boxHeight),
-                    size = Size(canvasWidth, canvasHeight - (top + boxHeight))
-                )
-                drawRect(
-                    color = Color.Black.copy(alpha = 0.3f),
-                    topLeft = Offset(0f, top),
-                    size = Size(left, boxHeight)
-                )
-                drawRect(
-                    color = Color.Black.copy(alpha = 0.3f),
-                    topLeft = Offset(left + boxWidth, top),
-                    size = Size(canvasWidth - (left + boxWidth), boxHeight)
-                )
+
+                // Dim outside the box
+                drawRect(Color.Black.copy(alpha = 0.3f), Offset.Zero, Size(canvasWidth, top))
+                drawRect(Color.Black.copy(alpha = 0.3f), Offset(0f, top + boxHeight), Size(canvasWidth, canvasHeight - (top + boxHeight)))
+                drawRect(Color.Black.copy(alpha = 0.3f), Offset(0f, top), Size(left, boxHeight))
+                drawRect(Color.Black.copy(alpha = 0.3f), Offset(left + boxWidth, top), Size(canvasWidth - (left + boxWidth), boxHeight))
             }
 
             // ---- Back Button (Top Left) ----
@@ -198,7 +219,7 @@ fun ScanScreen(
                 }
             }
 
-            // ---- Hint overlay ----
+            // ---- Hint text ----
             Text(
                 text     = "Place item inside the frame",
                 style    = MaterialTheme.typography.bodyMedium,
@@ -220,18 +241,18 @@ fun ScanScreen(
                 // Gallery Button (Bottom Left)
                 Surface(
                     modifier = Modifier.align(Alignment.CenterStart),
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f)
+                    shape    = CircleShape,
+                    color    = Color.Black.copy(alpha = 0.45f)
                 ) {
                     IconButton(
-                        onClick = { galleryLauncher.launch("image/*") },
+                        onClick  = { galleryLauncher.launch("image/*") },
                         modifier = Modifier.size(56.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.PhotoLibrary,
+                            imageVector        = Icons.Default.PhotoLibrary,
                             contentDescription = "Select from gallery",
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
+                            tint               = Color.White,
+                            modifier           = Modifier.size(28.dp)
                         )
                     }
                 }
@@ -248,11 +269,11 @@ fun ScanScreen(
                                 override fun onCaptureSuccess(imageProxy: ImageProxy) {
                                     val bitmap: Bitmap = imageProxy.toBitmap()
                                     imageProxy.close()
-                                    viewModel.classifyImage(bitmap)
 
                                     mainExecutor.execute {
+                                        // Store bitmap — CropScreen will appear
+                                        pendingCropBitmap = bitmap
                                         isCapturing = false
-                                        onNavigateToForm()
                                     }
                                 }
 
@@ -263,18 +284,20 @@ fun ScanScreen(
                             }
                         )
                     },
-                    modifier = Modifier.align(Alignment.Center).size(80.dp),
-                    shape = CircleShape,
+                    modifier       = Modifier
+                        .align(Alignment.Center)
+                        .size(80.dp),
+                    shape          = CircleShape,
                     containerColor = Color.White,
-                    contentColor = MaterialTheme.colorScheme.primary
+                    contentColor   = MaterialTheme.colorScheme.primary
                 ) {
                     if (isCapturing) {
                         CircularProgressIndicator(modifier = Modifier.size(32.dp))
                     } else {
                         Icon(
-                            imageVector = Icons.Default.Camera,
+                            imageVector        = Icons.Default.Camera,
                             contentDescription = "Capture",
-                            modifier = Modifier.size(36.dp)
+                            modifier           = Modifier.size(36.dp)
                         )
                     }
                 }
