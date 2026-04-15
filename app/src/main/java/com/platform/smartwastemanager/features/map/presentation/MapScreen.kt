@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
@@ -34,7 +36,7 @@ import java.util.Locale
  * Shows pending waste reports as pins on the map for both users and drivers.
  * Drivers in "Driver View" have additional management capabilities (Dismiss Mode).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MapScreen(
     viewModel: MapViewModel,
@@ -53,6 +55,14 @@ fun MapScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
 
+    // ---- Location permissions ----
+    val locationPermissions = rememberMultiplePermissionsState(
+        permissions = listOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    )
+
     // Default position (Johannesburg) used as fallback
     val defaultPosition = LatLng(-26.2041, 28.0473)
     val cameraPositionState = rememberCameraPositionState {
@@ -61,14 +71,33 @@ fun MapScreen(
 
     // Default to current location on start
     LaunchedEffect(Unit) {
-        val geoPoint = LocationHelper.getCurrentLocation(context)
-        if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
-            cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(geoPoint.latitude, geoPoint.longitude),
-                    15f
+        if (locationPermissions.allPermissionsGranted) {
+            val geoPoint = LocationHelper.getCurrentLocation(context)
+            if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(geoPoint.latitude, geoPoint.longitude),
+                        15f
+                    )
                 )
-            )
+            }
+        } else {
+            locationPermissions.launchMultiplePermissionRequest()
+        }
+    }
+
+    // Re-trigger location fetch if permissions are granted later
+    LaunchedEffect(locationPermissions.allPermissionsGranted) {
+        if (locationPermissions.allPermissionsGranted) {
+            val geoPoint = LocationHelper.getCurrentLocation(context)
+            if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(geoPoint.latitude, geoPoint.longitude),
+                        15f
+                    )
+                )
+            }
         }
     }
 
@@ -106,7 +135,9 @@ fun MapScreen(
             GoogleMap(
                 modifier            = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
-                properties = MapProperties(isMyLocationEnabled = true),
+                properties = MapProperties(
+                    isMyLocationEnabled = locationPermissions.allPermissionsGranted
+                ),
                 uiSettings = MapUiSettings(
                     myLocationButtonEnabled = false,
                     zoomControlsEnabled = true
@@ -279,16 +310,20 @@ fun MapScreen(
             // ---- Bottom Left Controls (Current Location) ----
             FloatingActionButton(
                 onClick = {
-                    scope.launch {
-                        val geoPoint = LocationHelper.getCurrentLocation(context)
-                        if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
-                            cameraPositionState.animate(
-                                CameraUpdateFactory.newLatLngZoom(
-                                    LatLng(geoPoint.latitude, geoPoint.longitude),
-                                    15f
+                    if (locationPermissions.allPermissionsGranted) {
+                        scope.launch {
+                            val geoPoint = LocationHelper.getCurrentLocation(context)
+                            if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
+                                cameraPositionState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(
+                                        LatLng(geoPoint.latitude, geoPoint.longitude),
+                                        15f
+                                    )
                                 )
-                            )
+                            }
                         }
+                    } else {
+                        locationPermissions.launchMultiplePermissionRequest()
                     }
                 },
                 modifier = Modifier
