@@ -75,9 +75,12 @@ fun SmartWasteManagerAppContent() {
     val mapViewModel: MapViewModel = viewModel(
         factory = MapViewModel.factory(app.container.mapRepository)
     )
-    // NEW — RouteViewModel uses the same mapRepository (Rule 3)
+    // RouteViewModel now takes BOTH mapRepository AND scheduleRepository (Rule 11)
     val routeViewModel: RouteViewModel = viewModel(
-        factory = RouteViewModel.factory(app.container.mapRepository)
+        factory = RouteViewModel.factory(
+            app.container.mapRepository,
+            app.container.scheduleRepository
+        )
     )
 
     // Reload data after any auth event (Rule 5)
@@ -94,7 +97,7 @@ fun SmartWasteManagerAppContent() {
         Routes.LOGIN
     }
 
-    val authRoutes    = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
+    val authRoutes     = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
     val isOnAuthScreen = currentDestination?.route in authRoutes
 
     val screenTitle = when {
@@ -105,9 +108,12 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
         currentDestination?.route == Routes.MAP              -> "Map"
         currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
-        currentDestination?.route == Routes.ZONE_MAP_PICKER  -> "Pick Zone Area"
-        currentDestination?.route == Routes.ZONE_LIST        -> "Collection Zones"
+        currentDestination?.route == Routes.ZONE_MAP_PICKER  -> "Create Zone"
+        currentDestination?.route == Routes.MANAGE_ZONES     -> "Global Zones"
         currentDestination?.route == Routes.ACTIVE_ROUTE     -> "Active Route"
+        // Pattern-match routes that have arguments
+        currentDestination?.route?.startsWith("home/zones/picker") == true -> "Assign Zone"
+        currentDestination?.route?.startsWith("home/zones/") == true       -> "Collection Zones"
         else                                                  -> "Smart Waste Manager"
     }
 
@@ -164,8 +170,8 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor      = MaterialTheme.colorScheme.primaryContainer,
-                            titleContentColor   = MaterialTheme.colorScheme.onPrimaryContainer,
+                            containerColor         = MaterialTheme.colorScheme.primaryContainer,
+                            titleContentColor      = MaterialTheme.colorScheme.onPrimaryContainer,
                             actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     )
@@ -233,7 +239,7 @@ fun SmartWasteManagerAppContent() {
             homeViewModel    = homeViewModel,
             reportViewModel  = reportViewModel,
             mapViewModel     = mapViewModel,
-            routeViewModel   = routeViewModel,   // NEW
+            routeViewModel   = routeViewModel,
             modifier         = Modifier.padding(innerPadding)
         )
     }
