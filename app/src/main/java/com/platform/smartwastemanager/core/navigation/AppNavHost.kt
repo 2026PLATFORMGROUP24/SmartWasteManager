@@ -24,6 +24,7 @@ import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.map.presentation.ZoneListScreen
 import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
+import com.platform.smartwastemanager.features.report.presentation.LocationPickerMapScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
@@ -37,7 +38,7 @@ fun AppNavHost(
     homeViewModel: HomeViewModel,
     reportViewModel: ReportViewModel,
     mapViewModel: MapViewModel,
-    routeViewModel: RouteViewModel,       // NEW — passed in from MainActivity (Rule 3)
+    routeViewModel: RouteViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -86,17 +87,14 @@ fun AppNavHost(
 
         composable(Routes.HOME) {
             HomeScreen(
-                viewModel          = homeViewModel,
-                isDriver           = isDriver,
-                onNavigateToManage = { navController.navigate(Routes.MANAGE_SCHEDULES) },
-                onNavigateToGuide  = { guideId ->
+                viewModel            = homeViewModel,
+                isDriver             = isDriver,
+                onNavigateToManage   = { navController.navigate(Routes.MANAGE_SCHEDULES) },
+                onNavigateToGuide    = { guideId ->
                     navController.navigate(Routes.buildGuideDetail(guideId))
                 },
-                // NEW: driver card tap navigates to zone list instead of guide
-                onNavigateToZones  = { scheduleDayId, scheduleDayName ->
-                    navController.navigate(
-                        Routes.buildZoneList(scheduleDayId, scheduleDayName)
-                    )
+                onNavigateToZones    = { scheduleDayId, scheduleDayName ->
+                    navController.navigate(Routes.buildZoneList(scheduleDayId, scheduleDayName))
                 },
                 isDriverInDriverView = isDriverInDriverView
             )
@@ -110,10 +108,10 @@ fun AppNavHost(
             )
         }
 
-        // ==================== ZONES (driver routes feature) ====================
+        // ==================== ZONES ====================
 
         composable(
-            route = Routes.ZONE_LIST,
+            route     = Routes.ZONE_LIST,
             arguments = listOf(
                 navArgument("scheduleDayId")   { type = NavType.StringType },
                 navArgument("scheduleDayName") { type = NavType.StringType }
@@ -121,7 +119,6 @@ fun AppNavHost(
         ) { backStackEntry ->
             val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId") ?: ""
             val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
-
             ZoneListScreen(
                 viewModel       = routeViewModel,
                 scheduleDayId   = scheduleDayId,
@@ -130,7 +127,6 @@ fun AppNavHost(
                 onNavigateBack  = { navController.popBackStack() },
                 onAddZone       = { navController.navigate(Routes.ZONE_MAP_PICKER) },
                 onLoadRoute     = { zone ->
-                    // Trigger route calculation then navigate to active route screen
                     routeViewModel.loadRouteForZone(zone)
                     navController.navigate(Routes.buildActiveRoute(zone.name))
                 }
@@ -146,15 +142,11 @@ fun AppNavHost(
         }
 
         composable(
-            route = Routes.ACTIVE_ROUTE,
-            arguments = listOf(
-                navArgument("zoneName") { type = NavType.StringType }
-            )
+            route     = Routes.ACTIVE_ROUTE,
+            arguments = listOf(navArgument("zoneName") { type = NavType.StringType })
         ) { backStackEntry ->
-            // Decode underscores back to spaces for display
             val zoneName = (backStackEntry.arguments?.getString("zoneName") ?: "")
                 .replace("_", " ")
-
             ActiveRouteScreen(
                 viewModel      = routeViewModel,
                 zoneName       = zoneName,
@@ -185,14 +177,25 @@ fun AppNavHost(
 
         composable(Routes.REPORT_FORM) {
             ReportFormScreen(
-                viewModel       = reportViewModel,
-                currentUserUid  = currentUser?.uid ?: "",
-                onNavigateBack  = { navController.popBackStack() },
-                onSubmitSuccess = {
+                viewModel                  = reportViewModel,
+                currentUserUid             = currentUser?.uid ?: "",
+                onNavigateBack             = { navController.popBackStack() },
+                onSubmitSuccess            = {
                     navController.navigate(Routes.REPORT) {
                         popUpTo(Routes.REPORT) { inclusive = true }
                     }
-                }
+                },
+                // NEW: open the full-screen location picker
+                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) }
+            )
+        }
+
+        // NEW: full-screen location picker — pushes onto back stack so
+        // the user can pop back to the form with the confirmed location already set.
+        composable(Routes.LOCATION_PICKER) {
+            LocationPickerMapScreen(
+                viewModel      = reportViewModel,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

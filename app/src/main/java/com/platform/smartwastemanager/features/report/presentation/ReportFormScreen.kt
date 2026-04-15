@@ -6,9 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,18 +17,24 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.features.report.domain.ReportType
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 
 /**
  * Waste Report form screen.
  *
- * - Collects waste category, report type, and street name.
- * - Shows an AI scan summary card when the user arrived via the camera scan flow.
- * - Shows a low-confidence warning card when the model wasn't sure, prompting
- *   the user to re-scan or correct the category manually.
- * - Requests ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION before fetching GPS.
- *   If denied, the street name stays empty and the user types it manually.
+ * Location section redesigned:
+ *   - Replaced plain text field with a compact map preview card.
+ *   - The card shows a live Google Map with a red pin on the confirmed location,
+ *     the resolved street name, and two action buttons:
+ *       • "Change on Map" — navigates to LocationPickerMapScreen for precise picking.
+ *       • "Use GPS"       — re-fetches device location.
+ *   - The user always sees the exact location being reported, removing ambiguity.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -38,11 +42,11 @@ fun ReportFormScreen(
     viewModel: ReportViewModel,
     currentUserUid: String,
     onNavigateBack: () -> Unit,
-    onSubmitSuccess: () -> Unit
+    onSubmitSuccess: () -> Unit,
+    onNavigateToLocationPicker: () -> Unit    // NEW — navigates to LocationPickerMapScreen
 ) {
     val context = LocalContext.current
 
-    // ---- Observe all ViewModel state ----
     val uiState            by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedCategory   by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val aiLabels           by viewModel.aiLabels.collectAsStateWithLifecycle()
@@ -50,6 +54,8 @@ fun ReportFormScreen(
     val selectedReportType by viewModel.selectedReportType.collectAsStateWithLifecycle()
     val streetName         by viewModel.streetName.collectAsStateWithLifecycle()
     val isLocating         by viewModel.isLocating.collectAsStateWithLifecycle()
+    val currentLocation    by viewModel.location.collectAsStateWithLifecycle()
+    val isManualLocation   by viewModel.isManualLocation.collectAsStateWithLifecycle()
 
     // ---- Location permissions ----
     val locationPermissions = rememberMultiplePermissionsState(
@@ -59,7 +65,7 @@ fun ReportFormScreen(
         )
     )
 
-    // Request permission + fetch location when the screen first opens
+    // Auto-fetch GPS location when screen opens or permission is granted
     LaunchedEffect(Unit) {
         if (locationPermissions.allPermissionsGranted) {
             viewModel.fetchLocation(context)
@@ -67,8 +73,6 @@ fun ReportFormScreen(
             locationPermissions.launchMultiplePermissionRequest()
         }
     }
-
-    // Fetch location automatically once the user grants permission
     LaunchedEffect(locationPermissions.allPermissionsGranted) {
         if (locationPermissions.allPermissionsGranted) {
             viewModel.fetchLocation(context)
@@ -80,7 +84,6 @@ fun ReportFormScreen(
     LaunchedEffect(uiState) {
         if (uiState is ReportUiState.Success) showSuccessDialog = true
     }
-
     if (showSuccessDialog) {
         AlertDialog(
             onDismissRequest = {},
@@ -100,29 +103,22 @@ fun ReportFormScreen(
     var categoryDropdownExpanded   by remember { mutableStateOf(false) }
     var reportTypeDropdownExpanded by remember { mutableStateOf(false) }
 
-    // ---- Root layout ----
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ---- Top bar ----
         Row(
-            modifier = Modifier
+            modifier          = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back"
-                )
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            Text(
-                text  = "Submit Report",
-                style = MaterialTheme.typography.titleLarge
-            )
+            Text("Submit Report", style = MaterialTheme.typography.titleLarge)
         }
 
-        // ---- Scrollable form body ----
+        // ---- Scrollable body ----
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -133,25 +129,21 @@ fun ReportFormScreen(
 
             // ================================================================
             // AI SCAN RESULTS CARD
-            // Shown only when the user arrived via the camera scan flow and the
-            // classifier returned at least one label.
             // ================================================================
             AnimatedVisibility(visible = aiLabels.isNotEmpty()) {
                 Card(
-                    colors = CardDefaults.cardColors(
+                    colors   = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-
-                        // Card header
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector        = Icons.Default.Info,
+                                Icons.Default.Info,
                                 contentDescription = null,
-                                tint               = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier           = Modifier.size(20.dp)
+                                tint     = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -161,10 +153,7 @@ fun ReportFormScreen(
                                 color      = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
-
                         Spacer(Modifier.height(10.dp))
-
-                        // Detected category pill — shows what the AI picked
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text  = "Detected as: ",
@@ -184,26 +173,19 @@ fun ReportFormScreen(
                                 )
                             }
                         }
-
                         Spacer(Modifier.height(10.dp))
-
-                        // Top-5 raw model labels with confidence bars
                         Text(
                             text  = "Top objects seen by the model:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
                         )
                         Spacer(Modifier.height(6.dp))
-
                         aiLabels.forEach { (label, confidence) ->
                             Row(
-                                modifier            = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
+                                modifier              = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment   = Alignment.CenterVertically
+                                verticalAlignment     = Alignment.CenterVertically
                             ) {
-                                // Truncate very long label strings so they don't overflow
                                 Text(
                                     text     = label.take(36),
                                     style    = MaterialTheme.typography.bodySmall,
@@ -220,15 +202,12 @@ fun ReportFormScreen(
                             }
                             LinearProgressIndicator(
                                 progress   = { confidence },
-                                modifier   = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp),
+                                modifier   = Modifier.fillMaxWidth().height(4.dp),
                                 color      = MaterialTheme.colorScheme.tertiary,
                                 trackColor = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.15f)
                             )
                             Spacer(Modifier.height(2.dp))
                         }
-
                         Spacer(Modifier.height(8.dp))
                         Text(
                             text  = "✏️ You can change the category below if the AI got it wrong.",
@@ -241,25 +220,21 @@ fun ReportFormScreen(
 
             // ================================================================
             // LOW CONFIDENCE WARNING CARD
-            // Shown when the model scanned something but wasn't confident.
-            // Only visible when aiLabels is also non-empty (i.e. a scan happened).
-            // Gives the user actionable tips and a shortcut back to the camera.
             // ================================================================
             AnimatedVisibility(visible = isLowConfidence && aiLabels.isNotEmpty()) {
                 Card(
-                    colors = CardDefaults.cardColors(
+                    colors   = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
-
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector        = Icons.Default.Warning,
+                                Icons.Default.Warning,
                                 contentDescription = null,
-                                tint               = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier           = Modifier.size(20.dp)
+                                tint     = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -269,9 +244,7 @@ fun ReportFormScreen(
                                 color      = MaterialTheme.colorScheme.onErrorContainer
                             )
                         }
-
                         Spacer(Modifier.height(6.dp))
-
                         Text(
                             text  = "The AI wasn't confident about this item. For a better result:\n" +
                                     "  • Move closer so the item fills the frame\n" +
@@ -281,10 +254,7 @@ fun ReportFormScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
-
                         Spacer(Modifier.height(8.dp))
-
-                        // Quick shortcut back to the camera
                         TextButton(onClick = onNavigateBack) {
                             Text(
                                 text       = "📷  Scan Again",
@@ -297,49 +267,11 @@ fun ReportFormScreen(
             }
 
             // ================================================================
-            // LOCATION PERMISSION BANNER
-            // Only shown when location was denied — never blocks form submission.
-            // ================================================================
-            if (!locationPermissions.allPermissionsGranted) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text  = "📍 Location permission needed",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text  = "Grant location access to auto-detect your street name, " +
-                                    "or type it manually below.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(
-                            onClick = { locationPermissions.launchMultiplePermissionRequest() }
-                        ) {
-                            Text(
-                                text  = "Grant Permission",
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
             // CATEGORY DROPDOWN
-            // Pre-filled by the AI classifier. User can override.
             // ================================================================
             Text("Waste Category", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
-                expanded        = categoryDropdownExpanded,
+                expanded         = categoryDropdownExpanded,
                 onExpandedChange = { categoryDropdownExpanded = it }
             ) {
                 OutlinedTextField(
@@ -347,15 +279,11 @@ fun ReportFormScreen(
                     onValueChange = {},
                     readOnly      = true,
                     label         = { Text("Category") },
-                    trailingIcon  = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(categoryDropdownExpanded)
-                    },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
+                    trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(categoryDropdownExpanded) },
+                    modifier      = Modifier.menuAnchor().fillMaxWidth()
                 )
                 ExposedDropdownMenu(
-                    expanded        = categoryDropdownExpanded,
+                    expanded         = categoryDropdownExpanded,
                     onDismissRequest = { categoryDropdownExpanded = false }
                 ) {
                     WasteCategory.entries.forEach { category ->
@@ -375,7 +303,7 @@ fun ReportFormScreen(
             // ================================================================
             Text("Report Type", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
-                expanded        = reportTypeDropdownExpanded,
+                expanded         = reportTypeDropdownExpanded,
                 onExpandedChange = { reportTypeDropdownExpanded = it }
             ) {
                 OutlinedTextField(
@@ -383,15 +311,11 @@ fun ReportFormScreen(
                     onValueChange = {},
                     readOnly      = true,
                     label         = { Text("Report Type") },
-                    trailingIcon  = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded)
-                    },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
+                    trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded) },
+                    modifier      = Modifier.menuAnchor().fillMaxWidth()
                 )
                 ExposedDropdownMenu(
-                    expanded        = reportTypeDropdownExpanded,
+                    expanded         = reportTypeDropdownExpanded,
                     onDismissRequest = { reportTypeDropdownExpanded = false }
                 ) {
                     ReportType.entries.forEach { type ->
@@ -407,62 +331,31 @@ fun ReportFormScreen(
             }
 
             // ================================================================
-            // STREET NAME FIELD
-            // Auto-populated by GPS + Geocoder. User can edit freely.
+            // LOCATION SECTION — map preview card (replaces plain text field)
             // ================================================================
-            Text("Location", style = MaterialTheme.typography.labelLarge)
-            Row(
-                modifier          = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value         = streetName,
-                    onValueChange = { viewModel.setStreetName(it) },
-                    label         = { Text("Street Name") },
-                    placeholder   = { Text("Auto-detected from GPS…") },
-                    supportingText = {
-                        Text(
-                            when {
-                                isLocating ->
-                                    "📍 Detecting location…"
-                                !locationPermissions.allPermissionsGranted ->
-                                    "⚠️ No permission — enter manually"
-                                streetName.isEmpty() ->
-                                    "📍 Tap the refresh icon to detect"
-                                else ->
-                                    "✅ GPS detected. You can edit if needed."
-                            }
-                        )
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                // Refresh GPS button — only enabled when permission is granted
-                IconButton(
-                    onClick  = { viewModel.fetchLocation(context) },
-                    enabled  = !isLocating && locationPermissions.allPermissionsGranted
-                ) {
-                    if (isLocating) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+            Text("Report Location", style = MaterialTheme.typography.labelLarge)
+
+            LocationPreviewCard(
+                currentLocation      = currentLocation,
+                streetName           = streetName,
+                isLocating           = isLocating,
+                isManualLocation     = isManualLocation,
+                locationGranted      = locationPermissions.allPermissionsGranted,
+                onChangeOnMap        = onNavigateToLocationPicker,
+                onUseGps             = {
+                    if (locationPermissions.allPermissionsGranted) {
+                        viewModel.fetchLocation(context)
                     } else {
-                        Icon(
-                            imageVector        = Icons.Default.LocationOn,
-                            contentDescription = "Refresh location",
-                            tint = if (locationPermissions.allPermissionsGranted)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.outline
-                        )
+                        locationPermissions.launchMultiplePermissionRequest()
                     }
                 }
-            }
+            )
 
             // ================================================================
             // AUTO-FILLED INFO CARD
-            // Reminds the user which fields are set automatically.
             // ================================================================
             Card(
-                colors = CardDefaults.cardColors(
+                colors   = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -483,8 +376,7 @@ fun ReportFormScreen(
             }
 
             // ================================================================
-            // SUBMISSION ERROR MESSAGE
-            // Shown below the info card when the Firestore write fails.
+            // SUBMISSION ERROR
             // ================================================================
             if (uiState is ReportUiState.Error) {
                 Text(
@@ -498,14 +390,11 @@ fun ReportFormScreen(
 
             // ================================================================
             // SUBMIT BUTTON
-            // Disabled while loading. Shows a spinner during submission.
             // ================================================================
             Button(
                 onClick  = { viewModel.submitReport(currentUserUid) },
                 enabled  = uiState !is ReportUiState.Loading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp)
             ) {
                 if (uiState is ReportUiState.Loading) {
                     CircularProgressIndicator(
@@ -518,6 +407,280 @@ fun ReportFormScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * The compact location preview card embedded in the form.
+ *
+ * Shows:
+ *   1. A live Google Map (180 dp tall) with a red pin on the confirmed location.
+ *      If no location is set yet, shows a greyed placeholder.
+ *   2. The resolved street name and a status badge (GPS / Manual / Detecting).
+ *   3. Two action buttons: "Change on Map" and "Use GPS".
+ *
+ * This ensures the user always has an unambiguous visual of exactly where
+ * the report will be placed on the map.
+ */
+@Composable
+private fun LocationPreviewCard(
+    currentLocation: com.google.firebase.firestore.GeoPoint,
+    streetName: String,
+    isLocating: Boolean,
+    isManualLocation: Boolean,
+    locationGranted: Boolean,
+    onChangeOnMap: () -> Unit,
+    onUseGps: () -> Unit
+) {
+    val hasLocation = currentLocation.latitude != 0.0 || currentLocation.longitude != 0.0
+
+    // Camera state for the preview mini-map
+    val previewCameraState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(
+            LatLng(
+                if (hasLocation) currentLocation.latitude else -26.2041,
+                if (hasLocation) currentLocation.longitude else 28.0473
+            ),
+            15f
+        )
+    }
+
+    // Animate the mini-map camera whenever the confirmed location changes
+    LaunchedEffect(currentLocation) {
+        if (hasLocation) {
+            previewCameraState.animate(
+                CameraUpdateFactory.newLatLngZoom(
+                    LatLng(currentLocation.latitude, currentLocation.longitude), 15f
+                )
+            )
+        }
+    }
+
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column {
+
+            // ---- Mini map preview ----
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            ) {
+                if (isLocating && !hasLocation) {
+                    // Show a placeholder while first GPS fix is incoming
+                    Box(
+                        modifier         = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text  = "Detecting your location…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    // Live map preview — disabled gestures so it doesn't fight with form scroll
+                    GoogleMap(
+                        modifier            = Modifier.fillMaxSize(),
+                        cameraPositionState = previewCameraState,
+                        uiSettings          = MapUiSettings(
+                            scrollGesturesEnabled   = false,   // non-interactive — tap "Change" instead
+                            zoomGesturesEnabled     = false,
+                            zoomControlsEnabled     = false,
+                            rotationGesturesEnabled = false,
+                            tiltGesturesEnabled     = false,
+                            myLocationButtonEnabled = false
+                        )
+                    ) {
+                        if (hasLocation) {
+                            Marker(
+                                state   = rememberMarkerState(
+                                    position = LatLng(currentLocation.latitude, currentLocation.longitude)
+                                ),
+                                title   = streetName.ifBlank { "Report Location" },
+                                icon    = BitmapDescriptorFactory.defaultMarker(
+                                    BitmapDescriptorFactory.HUE_RED
+                                )
+                            )
+                        }
+                    }
+
+                    // "Tap to change" overlay in the top-right corner of the mini map
+                    TextButton(
+                        onClick  = onChangeOnMap,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            )
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint     = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text  = "Change",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Street name + status + action buttons ----
+            Column(modifier = Modifier.padding(12.dp)) {
+
+                // Status badge row
+                Row(
+                    modifier          = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector        = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        // Street name or loading state
+                        when {
+                            isLocating -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 1.5.dp
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text  = "Detecting location…",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            streetName.isBlank() -> {
+                                Text(
+                                    text  = "No location set yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text       = streetName,
+                                    style      = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color      = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    // Source badge: GPS or Manual
+                    if (!isLocating && hasLocation) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = if (isManualLocation)
+                                MaterialTheme.colorScheme.secondaryContainer
+                            else
+                                MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text  = if (isManualLocation) "📌 Manual" else "📡 GPS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isManualLocation)
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Coordinates sub-label
+                if (hasLocation && !isLocating) {
+                    Text(
+                        text  = "${String.format("%.5f", currentLocation.latitude)}, " +
+                                "${String.format("%.5f", currentLocation.longitude)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 24.dp, top = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action buttons
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // "Change on Map" — primary action for manual location picking
+                    OutlinedButton(
+                        onClick  = onChangeOnMap,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text  = "Change on Map",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+
+                    // "Use GPS" — revert to auto-detected location
+                    OutlinedButton(
+                        onClick  = onUseGps,
+                        modifier = Modifier.weight(1f),
+                        enabled  = !isLocating
+                    ) {
+                        if (isLocating) {
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(14.dp),
+                                strokeWidth = 1.5.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.MyLocation,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text  = "Use GPS",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
         }
     }
 }

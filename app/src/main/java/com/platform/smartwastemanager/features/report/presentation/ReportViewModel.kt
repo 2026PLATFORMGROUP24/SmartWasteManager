@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.firestore.GeoPoint
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.report.data.ReportRepository
@@ -32,6 +33,7 @@ sealed class ReportUiState {
  * - Form field values (category, reportType, streetName, location)
  * - TFLite classification from a camera bitmap
  * - GPS location fetching and reverse geocoding
+ * - Manual map-based location picking (new)
  * - Firestore submission via ReportRepository
  */
 class ReportViewModel(
@@ -45,84 +47,85 @@ class ReportViewModel(
 
     // ---- Form fields ----
 
-    // The selected waste category (editable by user after AI pre-fill)
     private val _selectedCategory = MutableStateFlow(WasteCategory.MIXED_WASTE.displayName)
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    // Top-5 AI label names and confidence scores shown in the scan results card
     private val _aiLabels = MutableStateFlow<List<Pair<String, Float>>>(emptyList())
     val aiLabels: StateFlow<List<Pair<String, Float>>> = _aiLabels.asStateFlow()
 
-    // Human-readable debug string e.g. "• water bottle → 42%\n• plastic bag → 18%"
-    // Displayed in the AI summary card so the user can see what the model detected.
     private val _aiDebugInfo = MutableStateFlow("")
     val aiDebugInfo: StateFlow<String> = _aiDebugInfo.asStateFlow()
 
-    // True when the model's best score was below the confidence threshold.
-    // Drives the orange warning card in ReportFormScreen that prompts a re-scan.
     private val _isLowConfidence = MutableStateFlow(false)
     val isLowConfidence: StateFlow<Boolean> = _isLowConfidence.asStateFlow()
 
-    // The selected report type
     private val _selectedReportType = MutableStateFlow(ReportType.REGULAR_PICKUP.displayName)
     val selectedReportType: StateFlow<String> = _selectedReportType.asStateFlow()
 
-    // GPS location — auto-fetched, not exposed directly to the UI
-    private val _location = MutableStateFlow(GeoPoint(0.0, 0.0))
+    // ---- Location state ----
 
-    // Street name — auto-fetched via GPS + Geocoder, but the user can edit it
+    /**
+     * The GPS GeoPoint that will actually be saved to Firestore.
+     * Updated by fetchLocation() (GPS auto) or setManualLocation() (map pick).
+     */
+    private val _location = MutableStateFlow(GeoPoint(0.0, 0.0))
+    val location: StateFlow<GeoPoint> = _location.asStateFlow()
+
+    /**
+     * The human-readable street name shown in the form and saved to Firestore.
+     * Auto-resolved via Geocoder from whichever [_location] was set.
+     * The user can also type/edit it directly.
+     */
     private val _streetName = MutableStateFlow("")
     val streetName: StateFlow<String> = _streetName.asStateFlow()
 
-    // True while we are waiting for the GPS fix
+    /** True while a GPS fix or reverse-geocode operation is in progress. */
     private val _isLocating = MutableStateFlow(false)
     val isLocating: StateFlow<Boolean> = _isLocating.asStateFlow()
 
-    // ---- Setters called by the UI ----
+    /**
+     * True when the user has manually pinned a location on the map
+     * instead of relying on auto-GPS.
+     * The form uses this to show an appropriate status label.
+     */
+    private val _isManualLocation = MutableStateFlow(false)
+    val isManualLocation: StateFlow<Boolean> = _isManualLocation.asStateFlow()
 
-    fun setCategory(category: String) { _selectedCategory.value = category }
+    // ---- Setters ----
+
+    fun setCategory(category: String)  { _selectedCategory.value = category }
     fun setReportType(type: String)    { _selectedReportType.value = type }
     fun setStreetName(name: String)    { _streetName.value = name }
 
     /**
-     * Takes a bitmap from the camera or gallery, runs the TFLite multi-crop
-     * classifier, and pre-fills the category dropdown with the result.
+     * Called when the user confirms a location on the LocationPickerMapScreen.
      *
-     * All five StateFlows (_selectedCategory, _aiLabels, _aiDebugInfo,
-     * _isLowConfidence) are updated INSIDE the coroutine, AFTER `result`
-     * is assigned. Never reference `result` before the `val result = ...` line.
+     * Stores the picked [LatLng] as a [GeoPoint], marks the location as manually
+     * chosen, and reverse-geocodes the coordinates to fill the street name field.
+     *
+     * @param context  Needed for the Geocoder reverse-lookup.
+     * @param latLng   The coordinates the user pinned on the map.
      */
-    fun classifyImage(bitmap: Bitmap) {
+    fun setManualLocation(context: Context, latLng: LatLng) {
         viewModelScope.launch {
-            _uiState.value = ReportUiState.Loading
-
-            // Runs on Dispatchers.Default inside WasteImageClassifier
-            val result = wasteImageClassifier.classify(bitmap)
-
-            // Pre-fill category dropdown with AI's best guess
-            _selectedCategory.value = result.category.displayName
-
-            // Store top-5 labels for the AI summary card progress bars
-            _aiLabels.value = result.topLabels
-
-            // Store the formatted debug string for display
-            _aiDebugInfo.value = result.debugInfo
-
-            // Flag low confidence — triggers the warning card + re-scan prompt
-            _isLowConfidence.value = result.lowConfidence
-
-            _uiState.value = ReportUiState.Idle
+            _isLocating.value = true
+            val geoPoint = GeoPoint(latLng.latitude, latLng.longitude)
+            _location.value = geoPoint
+            _isManualLocation.value = true
+            // Reverse-geocode so the street name field auto-fills from the pin
+            _streetName.value = LocationHelper.getStreetName(context, geoPoint)
+            _isLocating.value = false
         }
     }
 
     /**
-     * Fetches the device's current GPS location and reverse-geocodes it to a
-     * street name. Populates _location and _streetName.
-     * Called automatically when ReportFormScreen first opens.
+     * Fetches the device's current GPS location and reverse-geocodes it.
+     * Clears the manual-location flag — reverts to auto-GPS mode.
      */
     fun fetchLocation(context: Context) {
         viewModelScope.launch {
             _isLocating.value = true
+            _isManualLocation.value = false   // back to GPS mode
             val geoPoint = LocationHelper.getCurrentLocation(context)
             _location.value = geoPoint
             _streetName.value = LocationHelper.getStreetName(context, geoPoint)
@@ -131,14 +134,27 @@ class ReportViewModel(
     }
 
     /**
-     * Builds a WasteReport from the current form state and submits it to Firestore.
-     *
-     * @param reportedByUid The UID of the currently signed-in user.
+     * Classifies a bitmap using the TFLite waste classifier and pre-fills
+     * the category dropdown with the result.
+     */
+    fun classifyImage(bitmap: Bitmap) {
+        viewModelScope.launch {
+            _uiState.value = ReportUiState.Loading
+            val result = wasteImageClassifier.classify(bitmap)
+            _selectedCategory.value  = result.category.displayName
+            _aiLabels.value          = result.topLabels
+            _aiDebugInfo.value       = result.debugInfo
+            _isLowConfidence.value   = result.lowConfidence
+            _uiState.value = ReportUiState.Idle
+        }
+    }
+
+    /**
+     * Builds a WasteReport from current form state and submits it to Firestore.
      */
     fun submitReport(reportedByUid: String) {
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
-
             val report = WasteReport(
                 category   = _selectedCategory.value,
                 reportType = _selectedReportType.value,
@@ -147,9 +163,7 @@ class ReportViewModel(
                 reportedBy = reportedByUid,
                 status     = "pending"
             )
-
             val result = reportRepository.submitReport(report)
-
             _uiState.value = if (result.isSuccess) {
                 ReportUiState.Success
             } else {
@@ -158,28 +172,28 @@ class ReportViewModel(
         }
     }
 
-    /** Resets all form fields back to defaults after a successful submission. */
+    /** Resets all form fields back to their defaults after a successful submission. */
     fun resetForm() {
-        _selectedCategory.value  = WasteCategory.MIXED_WASTE.displayName
-        _aiLabels.value          = emptyList()
-        _aiDebugInfo.value       = ""
-        _isLowConfidence.value   = false
+        _selectedCategory.value   = WasteCategory.MIXED_WASTE.displayName
+        _aiLabels.value           = emptyList()
+        _aiDebugInfo.value        = ""
+        _isLowConfidence.value    = false
         _selectedReportType.value = ReportType.REGULAR_PICKUP.displayName
-        _streetName.value        = ""
-        _location.value          = GeoPoint(0.0, 0.0)
-        _uiState.value           = ReportUiState.Idle
+        _streetName.value         = ""
+        _location.value           = GeoPoint(0.0, 0.0)
+        _isManualLocation.value   = false
+        _uiState.value            = ReportUiState.Idle
     }
 
-    // ---- Manual DI factory (no Hilt / Dagger — Rule 6) ----
+    // ---- Manual DI factory ----
     companion object {
         fun factory(
             reportRepository: ReportRepository,
             wasteImageClassifier: WasteImageClassifier
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ReportViewModel(reportRepository, wasteImageClassifier) as T
-            }
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                ReportViewModel(reportRepository, wasteImageClassifier) as T
         }
     }
 }

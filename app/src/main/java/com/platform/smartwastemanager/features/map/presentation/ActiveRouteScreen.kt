@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -23,19 +24,16 @@ import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 
 /**
- * ActiveRouteScreen — the full-screen route execution view.
+ * ActiveRouteScreen — full-screen collection route execution.
  *
- * States handled:
- *   [ActiveRouteUiState.Calculating] — spinner while OSRM calculates.
- *   [ActiveRouteUiState.Ready]       — shows all stops on the map + "Start Route" button.
- *   [ActiveRouteUiState.InProgress]  — shows the current stop card + "Collect" button.
- *                                      Completed stops are greyed out; current stop is highlighted.
- *   [ActiveRouteUiState.Completed]   — success screen; driver can navigate back.
- *   [ActiveRouteUiState.Error]       — error card with a back button.
- *
- * @param viewModel        RouteViewModel — startRoute() and collectCurrentStop() called here.
- * @param zoneName         Name of the zone, displayed in the header.
- * @param onNavigateBack   Pop back to ZoneListScreen.
+ * Layout philosophy:
+ *   READY state:    Map (300 dp) → scrollable stop list → "Start Route" button.
+ *   IN-PROGRESS:    Map fills the full screen. The current-stop card is overlaid
+ *                   at the bottom as a floating panel — ALWAYS visible, no scrolling
+ *                   needed to reach the "Collect" button.
+ *   COMPLETED:      Celebration card centred on screen.
+ *   CALCULATING:    Spinner centred on screen.
+ *   ERROR:          Error card with "Go Back".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,13 +47,12 @@ fun ActiveRouteScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Default fallback map position (Johannesburg)
-    val defaultPosition  = LatLng(-26.2041, 28.0473)
+    val defaultPosition = LatLng(-26.2041, 28.0473)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
 
-    // Show action error (e.g. collect failure) as a snackbar
+    // Show collect/dismiss error as a snackbar without interrupting the route
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
             snackbarHostState.showSnackbar((actionState as RouteActionState.Error).message)
@@ -63,17 +60,28 @@ fun ActiveRouteScreen(
         }
     }
 
-    // When route becomes InProgress, fly the camera to the first stop
+    // When the route transitions to Ready, fly the camera to fit all stops
     LaunchedEffect(routeState) {
-        if (routeState is ActiveRouteUiState.InProgress) {
-            val inProgress = routeState as ActiveRouteUiState.InProgress
-            val current = inProgress.stops[inProgress.currentStopIndex]
-            cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(current.location.latitude, current.location.longitude),
-                    16f
+        when (val state = routeState) {
+            is ActiveRouteUiState.Ready -> {
+                // Centre on the first stop so the driver can see where they're going
+                val first = state.stops.firstOrNull() ?: return@LaunchedEffect
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(first.location.latitude, first.location.longitude), 14f
+                    )
                 )
-            )
+            }
+            is ActiveRouteUiState.InProgress -> {
+                // Pan to the current stop every time it changes
+                val current = state.stops.getOrNull(state.currentStopIndex) ?: return@LaunchedEffect
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(current.location.latitude, current.location.longitude), 16f
+                    )
+                )
+            }
+            else -> {}
         }
     }
 
@@ -86,7 +94,7 @@ fun ActiveRouteScreen(
                 .padding(innerPadding)
         ) {
 
-            // ---- Top bar ----
+            // ---- Persistent top bar ----
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -119,25 +127,26 @@ fun ActiveRouteScreen(
                 }
             }
 
-            // ---- Main content based on route state ----
+            // ---- State-driven content ----
             when (val state = routeState) {
 
-                // ---- Calculating spinner ----
+                // ----------------------------------------------------------------
+                // CALCULATING — spinner while OSRM works
+                // ----------------------------------------------------------------
                 is ActiveRouteUiState.Calculating -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier         = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text  = "Calculating optimised route…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                "Calculating optimised route…",
+                                style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                text  = "Using free OSRM routing service",
+                                "Using free OSRM routing service",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -145,152 +154,208 @@ fun ActiveRouteScreen(
                     }
                 }
 
-                // ---- Ready state: all stops on map + Start Route button ----
+                // ----------------------------------------------------------------
+                // READY — preview map + stop list + Start Route button
+                // ----------------------------------------------------------------
                 is ActiveRouteUiState.Ready -> {
-                    RouteMapWithStops(
-                        stops               = state.stops,
-                        currentStopIndex    = -1,         // -1 = not started yet
-                        cameraPositionState = cameraPositionState
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    StopListPanel(
-                        stops            = state.stops,
-                        currentStopIndex = -1
-                    )
-                    // "Start Route" call-to-action
-                    Button(
-                        onClick  = { viewModel.startRoute() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
+                    Column(modifier = Modifier.fillMaxSize()) {
+
+                        // Map at a fixed height so the list + button always fit below
+                        RouteMapWithStops(
+                            stops               = state.stops,
+                            currentStopIndex    = -1,
+                            cameraPositionState = cameraPositionState,
+                            modifier            = Modifier
+                                .fillMaxWidth()
+                                .height(300.dp)
                         )
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Start Route  (${state.stops.size} stop${if (state.stops.size != 1) "s" else ""})",
-                            style = MaterialTheme.typography.titleSmall
+
+                        // Stop preview list (scrollable, capped in height)
+                        StopListPanel(
+                            stops            = state.stops,
+                            currentStopIndex = -1,
+                            modifier         = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)   // takes remaining space above the button
                         )
-                    }
-                }
 
-                // ---- InProgress: current stop highlighted, Collect button ----
-                is ActiveRouteUiState.InProgress -> {
-                    val currentStop = state.stops[state.currentStopIndex]
-
-                    // Map showing all remaining stops
-                    RouteMapWithStops(
-                        stops               = state.stops,
-                        currentStopIndex    = state.currentStopIndex,
-                        cameraPositionState = cameraPositionState,
-                        modifier            = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
-
-                    // Current stop card
-                    Surface(
-                        tonalElevation = 4.dp,
-                        modifier       = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-
-                            // Progress indicator
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text  = "Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text  = "${state.stops.size - state.currentStopIndex - 1} remaining",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            LinearProgressIndicator(
-                                progress = {
-                                    state.currentStopIndex.toFloat() / state.stops.size.toFloat()
-                                },
+                        // ---- Start Route button — always at the very bottom ----
+                        Surface(
+                            tonalElevation = 4.dp,
+                            modifier       = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick  = { viewModel.startRoute() },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                            )
-
-                            // Stop details
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.LocationOn,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text       = currentStop.streetName,
-                                            style      = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color      = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text  = "🗑️ ${currentStop.category}  •  Regular Pickup",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Collect button
-                            Button(
-                                onClick  = { viewModel.collectCurrentStop() },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors   = ButtonDefaults.buttonColors(
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .height(52.dp),
+                                colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary
                                 )
                             ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text  = "Collect",
-                                    style = MaterialTheme.typography.titleSmall
+                                    text  = "Start Route  •  ${state.stops.size} stop${if (state.stops.size != 1) "s" else ""}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
                 }
 
-                // ---- Completed ----
+                // ----------------------------------------------------------------
+                // IN PROGRESS — map fills screen, stop card overlaid at bottom
+                // ----------------------------------------------------------------
+                is ActiveRouteUiState.InProgress -> {
+                    val currentStop = state.stops[state.currentStopIndex]
+
+                    // Use a Box so the stop card can float over the map
+                    Box(modifier = Modifier.fillMaxSize()) {
+
+                        // Map fills the entire remaining space
+                        RouteMapWithStops(
+                            stops               = state.stops,
+                            currentStopIndex    = state.currentStopIndex,
+                            cameraPositionState = cameraPositionState,
+                            modifier            = Modifier.fillMaxSize()
+                        )
+
+                        // ---- Current stop card — overlaid at the bottom ----
+                        // Uses a rounded top surface so it looks like a bottom sheet.
+                        // The Collect button is ALWAYS the last item — no scrolling needed.
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter),
+                            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                            ) {
+
+                                // ---- Progress row ----
+                                Row(
+                                    modifier              = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment     = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text  = "Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text  = "${state.stops.size - state.currentStopIndex - 1} remaining",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                // Progress bar
+                                LinearProgressIndicator(
+                                    progress = {
+                                        (state.currentStopIndex).toFloat() / state.stops.size.toFloat()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                        .height(6.dp),
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+
+                                // ---- Stop detail card ----
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier          = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector        = Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            tint               = MaterialTheme.colorScheme.primary,
+                                            modifier           = Modifier.size(28.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text       = currentStop.streetName,
+                                                style      = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color      = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            Text(
+                                                text  = "🗑️ ${currentStop.category}  •  Regular Pickup",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // ---- COLLECT button — large, always visible, bottom of card ----
+                                Button(
+                                    onClick  = { viewModel.collectCurrentStop() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),   // tall target — easy to tap
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    shape = MaterialTheme.shapes.medium
+                                ) {
+                                    Icon(
+                                        imageVector        = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier           = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text      = "Collect",
+                                        style     = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ----------------------------------------------------------------
+                // COMPLETED
+                // ----------------------------------------------------------------
                 is ActiveRouteUiState.Completed -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier         = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(32.dp)
+                            modifier            = Modifier.padding(32.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector        = Icons.Default.CheckCircle,
                                 contentDescription = null,
-                                tint     = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(80.dp)
+                                tint               = MaterialTheme.colorScheme.primary,
+                                modifier           = Modifier.size(80.dp)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
@@ -306,10 +371,7 @@ fun ActiveRouteScreen(
                             )
                             Spacer(modifier = Modifier.height(32.dp))
                             Button(
-                                onClick = {
-                                    viewModel.resetRoute()
-                                    onNavigateBack()
-                                },
+                                onClick  = { viewModel.resetRoute(); onNavigateBack() },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Back to Zones")
@@ -318,10 +380,12 @@ fun ActiveRouteScreen(
                     }
                 }
 
-                // ---- Error ----
+                // ----------------------------------------------------------------
+                // ERROR
+                // ----------------------------------------------------------------
                 is ActiveRouteUiState.Error -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier         = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Card(
@@ -331,14 +395,14 @@ fun ActiveRouteScreen(
                             )
                         ) {
                             Column(
-                                modifier = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                modifier                = Modifier.padding(20.dp),
+                                horizontalAlignment     = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
+                                    imageVector        = Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint     = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(40.dp)
+                                    tint               = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier           = Modifier.size(40.dp)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
@@ -347,10 +411,7 @@ fun ActiveRouteScreen(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Button(onClick = {
-                                    viewModel.resetRoute()
-                                    onNavigateBack()
-                                }) {
+                                Button(onClick = { viewModel.resetRoute(); onNavigateBack() }) {
                                     Text("Go Back")
                                 }
                             }
@@ -358,10 +419,12 @@ fun ActiveRouteScreen(
                     }
                 }
 
-                // ---- Idle (shouldn't normally be shown) ----
+                // ----------------------------------------------------------------
+                // IDLE — transitional state, show spinner
+                // ----------------------------------------------------------------
                 is ActiveRouteUiState.Idle -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier         = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator()
@@ -372,15 +435,19 @@ fun ActiveRouteScreen(
     }
 }
 
+// =============================================================================
+// PRIVATE COMPOSABLES
+// =============================================================================
+
 /**
- * The map component shared by Ready and InProgress states.
+ * The Google Map component used by both Ready and InProgress states.
  *
- * Renders all stops as markers:
- *   - Green  = already collected
- *   - Blue   = current stop (highlighted)
- *   - Red    = upcoming stop
+ * Marker colours:
+ *   🟢 Green  = already collected (isCollected = true)
+ *   🔵 Azure  = the current stop driver needs to visit next
+ *   🔴 Red    = upcoming uncollected stop
  *
- * Draws a thin polyline connecting stops in route order.
+ * A blue polyline connects all stops in optimised route order.
  */
 @Composable
 private fun RouteMapWithStops(
@@ -389,68 +456,71 @@ private fun RouteMapWithStops(
     cameraPositionState: CameraPositionState,
     modifier: Modifier = Modifier
         .fillMaxWidth()
-        .height(280.dp)
+        .height(300.dp)
 ) {
     GoogleMap(
         modifier            = modifier,
         cameraPositionState = cameraPositionState,
-        uiSettings          = MapUiSettings(zoomControlsEnabled = true)
+        uiSettings          = MapUiSettings(
+            zoomControlsEnabled     = true,
+            myLocationButtonEnabled = false
+        )
     ) {
-        // Draw the route line connecting all stops in order
+        // Route polyline — draw connecting line through all stops in order
         if (stops.size >= 2) {
-            val routePoints = stops.map { LatLng(it.location.latitude, it.location.longitude) }
             Polyline(
-                points = routePoints,
-                color  = Color(0xFF1565C0),   // dark blue
+                points = stops.map { LatLng(it.location.latitude, it.location.longitude) },
+                color  = Color(0xFF1565C0),
                 width  = 8f
             )
         }
 
-        // Draw each stop as a coloured marker
+        // Stop markers
         stops.forEachIndexed { index, stop ->
             val position = LatLng(stop.location.latitude, stop.location.longitude)
-            val markerHue = when {
-                stop.isCollected        -> BitmapDescriptorFactory.HUE_GREEN   // done
-                index == currentStopIndex -> BitmapDescriptorFactory.HUE_AZURE  // current
-                else                    -> BitmapDescriptorFactory.HUE_RED      // upcoming
+            val hue = when {
+                stop.isCollected          -> BitmapDescriptorFactory.HUE_GREEN  // done ✅
+                index == currentStopIndex -> BitmapDescriptorFactory.HUE_AZURE  // current 🔵
+                else                      -> BitmapDescriptorFactory.HUE_RED    // upcoming 🔴
             }
             Marker(
                 state   = rememberMarkerState(position = position),
                 title   = "Stop ${index + 1}: ${stop.streetName}",
                 snippet = stop.category,
-                icon    = BitmapDescriptorFactory.defaultMarker(markerHue)
+                icon    = BitmapDescriptorFactory.defaultMarker(hue)
             )
         }
     }
 }
 
 /**
- * A compact scrollable list of all stops shown below the map.
- * Used in the Ready state so the driver can preview the route before starting.
+ * Compact stop-list panel used in the Ready state.
+ * Shows all stops with their number badge, street name, category, and a ✅ when collected.
  */
 @Composable
 private fun StopListPanel(
     stops: List<RouteStop>,
-    currentStopIndex: Int
+    currentStopIndex: Int,
+    modifier: Modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(max = 200.dp)
 ) {
     LazyColumn(
-        modifier        = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 180.dp),
-        contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        modifier            = modifier,
+        contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         itemsIndexed(stops) { index, stop ->
             val isCurrent   = index == currentStopIndex
             val isCollected = stop.isCollected
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Stop number badge
+                // Numbered badge
                 Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = when {
+                    shape    = MaterialTheme.shapes.small,
+                    color    = when {
                         isCollected -> MaterialTheme.colorScheme.tertiary
                         isCurrent   -> MaterialTheme.colorScheme.primary
                         else        -> MaterialTheme.colorScheme.surfaceVariant
@@ -473,8 +543,8 @@ private fun StopListPanel(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text  = stop.streetName,
-                        style = MaterialTheme.typography.bodySmall,
+                        text       = stop.streetName,
+                        style      = MaterialTheme.typography.bodySmall,
                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
                     )
                     Text(
@@ -485,10 +555,10 @@ private fun StopListPanel(
                 }
                 if (isCollected) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector        = Icons.Default.CheckCircle,
                         contentDescription = "Collected",
-                        tint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(18.dp)
+                        tint               = MaterialTheme.colorScheme.tertiary,
+                        modifier           = Modifier.size(18.dp)
                     )
                 }
             }

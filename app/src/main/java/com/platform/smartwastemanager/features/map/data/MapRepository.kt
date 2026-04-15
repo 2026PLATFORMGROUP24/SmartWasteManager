@@ -1,6 +1,7 @@
 package com.platform.smartwastemanager.features.map.data
 
 import com.google.firebase.firestore.GeoPoint
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -21,9 +22,9 @@ import kotlin.math.*
  * MapRepository handles all data operations for:
  *   1. Loading pending map pins (waste reports) — existing behaviour.
  *   2. Dismissing a report — existing behaviour.
- *   3. Zone CRUD — new for driver routes feature.
- *   4. Calculating an optimised collection route using OSRM — new.
- *   5. Collecting (dismissing) a report during an active route — new.
+ *   3. Zone CRUD — driver routes feature.
+ *   4. Calculating an optimised collection route using OSRM.
+ *   5. Collecting (dismissing) a report during an active route.
  */
 class MapRepository {
 
@@ -31,7 +32,7 @@ class MapRepository {
 
     // ---- OSRM Retrofit client (free, no API key) ----
     private val json = Json {
-        ignoreUnknownKeys = true  // Ignore any OSRM fields we don't model
+        ignoreUnknownKeys = true
         isLenient = true
     }
 
@@ -58,7 +59,6 @@ class MapRepository {
             .whereEqualTo("status", "pending")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    // Rule 4: do NOT close with error
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
@@ -89,14 +89,9 @@ class MapRepository {
     }
 
     // =====================================================================
-    // NEW: Zone CRUD
+    // Zone CRUD
     // =====================================================================
 
-    /**
-     * Returns a real-time Flow of all zones associated with a specific schedule day.
-     *
-     * @param scheduleDayId The Firestore document ID of the CollectionDay.
-     */
     fun getZonesForDay(scheduleDayId: String): Flow<List<Zone>> = callbackFlow {
         val listener = firestore.collection("route_zones")
             .whereEqualTo("scheduleDayId", scheduleDayId)
@@ -123,10 +118,6 @@ class MapRepository {
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 
-    /**
-     * Saves a new zone to Firestore.
-     * Returns the generated document ID on success, or throws on failure.
-     */
     suspend fun addZone(zone: Zone): String {
         val data = mapOf(
             "name"          to zone.name,
@@ -140,41 +131,38 @@ class MapRepository {
         return ref.id
     }
 
-    /**
-     * Deletes a zone from Firestore by its document ID.
-     */
     suspend fun deleteZone(zoneId: String) {
         firestore.collection("route_zones").document(zoneId).delete().await()
     }
 
     // =====================================================================
-    // NEW: Route Calculation
+    // Route Calculation
     // =====================================================================
 
     /**
-     * Loads all PENDING "Regular Pickup" waste reports that fall within the
-     * given zone (circular area defined by centre + radius).
+     * Fetches ALL pending "Regular Pickup" waste reports in real-time from the
+     * Firestore SERVER (bypassing local cache) and filters them to only those
+     * inside the given circular zone.
      *
-     * We fetch all pending Regular Pickup reports from Firestore, then
-     * filter client-side using the Haversine formula to check if each
-     * report's location is within the zone radius.
+     * KEY FIX: Source.SERVER forces Firestore to go to the network, ensuring
+     * waste reports submitted after the app launched (or after a previous route
+     * was calculated) are always included. Without this, Firestore's offline
+     * persistence cache can serve stale data that misses new reports.
      *
-     * Firestore does not natively support radius queries on GeoPoints, so
-     * client-side filtering is the correct approach here.
-     *
-     * @return A list of [RouteStop] objects ordered by OSRM's optimised trip route.
-     *         Returns an empty list if no reports are found in the zone.
-     * @throws Exception if the OSRM API call fails.
+     * @return Optimally ordered list of [RouteStop] objects via OSRM trip API.
+     *         Falls back to unordered list if OSRM is unreachable.
      */
     suspend fun calculateRouteForZone(zone: Zone): List<RouteStop> {
-        // Step 1: Fetch all pending Regular Pickup reports from Firestore
+        // ---- STEP 1: Force a fresh server read — never use cached data for routes ----
+        // Source.SERVER skips the local offline cache entirely.
+        // This is the fix for new reports not appearing in loaded routes.
         val snapshot = firestore.collection("waste_reports")
             .whereEqualTo("status", "pending")
             .whereEqualTo("reportType", "Regular Pickup")
-            .get()
+            .get(Source.SERVER)   // <-- THE FIX: always fetch from server, not cache
             .await()
 
-        // Step 2: Map Firestore documents to RouteStop objects
+        // ---- STEP 2: Map Firestore documents to RouteStop objects ----
         val allRegularPickups = snapshot.documents.mapNotNull { doc ->
             try {
                 val geoPoint = doc.getGeoPoint("location") ?: return@mapNotNull null
@@ -188,7 +176,7 @@ class MapRepository {
             } catch (e: Exception) { null }
         }
 
-        // Step 3: Filter to only those inside the zone radius using Haversine distance
+        // ---- STEP 3: Filter to stops inside the zone using Haversine distance ----
         val stopsInZone = allRegularPickups.filter { stop ->
             haversineDistanceMeters(
                 lat1 = zone.centerLat,
@@ -198,36 +186,37 @@ class MapRepository {
             ) <= zone.radiusMeters
         }
 
-        // If fewer than 2 stops, no routing needed — return as-is
+        // If there's only 1 stop (or none), OSRM trip routing isn't needed
         if (stopsInZone.size < 2) return stopsInZone
 
-        // Step 4: Build OSRM coordinates string — format is "lng,lat;lng,lat;..."
-        // OSRM expects LONGITUDE first, then LATITUDE (the opposite of what you might expect)
+        // ---- STEP 4: Build OSRM coordinate string (longitude FIRST, then latitude) ----
         val coordinatesString = stopsInZone.joinToString(";") { stop ->
             "${stop.location.longitude},${stop.location.latitude}"
         }
 
-        // Step 5: Call OSRM trip API to get the optimised visit order
-        val osrmResponse = osrmService.getOptimisedTrip(coordinatesString)
-
-        // Step 6: Re-order stops according to OSRM's optimised waypoint order
-        return if (osrmResponse.code == "Ok" && osrmResponse.waypoints.size == stopsInZone.size) {
-            // waypoints[i].waypointIndex tells us: "input stop i should be visited at position X"
-            // We need to invert this: build a list sorted by waypointIndex
-            val indexed = osrmResponse.waypoints.mapIndexed { inputIndex, waypoint ->
-                waypoint.waypointIndex to stopsInZone[inputIndex]
+        // ---- STEP 5: Ask OSRM for the optimal visit order ----
+        return try {
+            val osrmResponse = osrmService.getOptimisedTrip(coordinatesString)
+            if (osrmResponse.code == "Ok" && osrmResponse.waypoints.size == stopsInZone.size) {
+                // waypoints[i].waypointIndex = the position this stop should be visited
+                // Sort by waypointIndex to get the optimal visit sequence
+                val indexed = osrmResponse.waypoints.mapIndexed { inputIndex, waypoint ->
+                    waypoint.waypointIndex to stopsInZone[inputIndex]
+                }
+                indexed.sortedBy { (visitOrder, _) -> visitOrder }.map { (_, stop) -> stop }
+            } else {
+                stopsInZone // OSRM returned unexpected data — use original order
             }
-            indexed.sortedBy { (visitOrder, _) -> visitOrder }.map { (_, stop) -> stop }
-        } else {
-            // OSRM failed — return stops in original order as fallback
+        } catch (e: Exception) {
+            // Network issue contacting OSRM — fall back to unoptimised order
+            // The route still works, just not optimally ordered
             stopsInZone
         }
     }
 
     /**
      * Marks a waste report as "dismissed" during an active route.
-     * This is the same underlying operation as dismissReport — it removes
-     * the pin from the map and marks it as collected.
+     * Identical to dismissReport — removes the pin from the live map.
      */
     suspend fun collectStop(reportId: String) {
         firestore.collection("waste_reports")
@@ -241,29 +230,19 @@ class MapRepository {
     // =====================================================================
 
     /**
-     * Calculates the great-circle distance between two GPS coordinates in metres.
-     *
-     * The Haversine formula accounts for the curvature of the Earth, giving
-     * accurate distance measurements for our zone-containment checks.
-     *
-     * @return Distance in metres between the two points.
+     * Calculates the straight-line distance between two GPS points in metres,
+     * accounting for Earth's curvature. Used for zone-containment checks.
      */
     private fun haversineDistanceMeters(
         lat1: Double, lng1: Double,
         lat2: Double, lng2: Double
     ): Double {
         val earthRadiusMeters = 6_371_000.0
-
         val dLat = Math.toRadians(lat2 - lat1)
         val dLng = Math.toRadians(lng2 - lng1)
-
         val a = sin(dLat / 2).pow(2) +
-                cos(Math.toRadians(lat1)) *
-                cos(Math.toRadians(lat2)) *
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
                 sin(dLng / 2).pow(2)
-
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-        return earthRadiusMeters * c
+        return earthRadiusMeters * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 }

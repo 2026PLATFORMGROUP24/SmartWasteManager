@@ -2,6 +2,8 @@ package com.platform.smartwastemanager.features.map.presentation
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -12,7 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -22,22 +26,26 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.core.util.LocationHelper
+import kotlinx.coroutines.launch
 
 /**
- * ZoneMapPickerScreen — lets the driver visually pick a zone centre on the map.
+ * ZoneMapPickerScreen — lets the driver define a circular zone area on the map.
  *
- * The driver:
- *   1. Long-presses on the map to place a pin (zone centre), OR
- *   2. Taps the [+] FAB (bottom-left) to use the current map-camera centre.
- *   3. Uses a slider to set the radius.
- *   4. Types a name for the zone.
- *   5. Taps "Save Zone".
+ * HOW TO USE:
+ *   Option A — Search by name (NEW):
+ *     Type a place name or area (e.g. "Sandton", "Main Road Soweto") in the
+ *     Zone Name field, then press the Search key on the keyboard. The map will
+ *     fly to that location and automatically drop the zone centre pin there.
+ *     You can still edit the name afterwards.
  *
- * A semi-transparent green circle shows the zone boundary in real-time.
+ *   Option B — Long-press on the map:
+ *     Long-press anywhere on the map to drop/move the zone centre pin.
  *
- * @param viewModel      RouteViewModel — addZone() is called on save.
- * @param driverUid      Current driver's UID.
- * @param onNavigateBack Pop back to ZoneListScreen (list refreshes via Firestore listener).
+ *   Option C — Pan + [+] FAB:
+ *     Pan the map to the desired location, then tap the green [+] FAB at the
+ *     bottom-left to place the pin at the current camera centre.
+ *
+ *   After placing a pin, adjust the radius slider, confirm the name, and tap Save Zone.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -46,14 +54,17 @@ fun ZoneMapPickerScreen(
     driverUid: String,
     onNavigateBack: () -> Unit
 ) {
-    val actionState       by viewModel.actionState.collectAsStateWithLifecycle()
-    val context           = LocalContext.current
+    val actionState    by viewModel.actionState.collectAsStateWithLifecycle()
+    val context        = LocalContext.current
+    val focusManager   = LocalFocusManager.current
+    val scope          = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // ---- Form state ----
-    var zoneName     by remember { mutableStateOf("") }
-    var pickedLatLng by remember { mutableStateOf<LatLng?>(null) }
-    var radiusMeters by remember { mutableFloatStateOf(500f) }   // slider 100–5 000 m
+    var zoneName         by remember { mutableStateOf("") }
+    var pickedLatLng     by remember { mutableStateOf<LatLng?>(null) }
+    var radiusMeters     by remember { mutableFloatStateOf(500f) }
+    var isSearching      by remember { mutableStateOf(false) }
 
     // ---- Map state ----
     val defaultPosition = LatLng(-26.2041, 28.0473)   // Johannesburg fallback
@@ -68,7 +79,7 @@ fun ZoneMapPickerScreen(
         )
     )
 
-    // Move camera to device location when the screen opens
+    // Move camera to device's current location when the screen first opens
     LaunchedEffect(Unit) {
         if (locationPermissions.allPermissionsGranted) {
             val geoPoint = LocationHelper.getCurrentLocation(context)
@@ -84,7 +95,7 @@ fun ZoneMapPickerScreen(
         }
     }
 
-    // After a successful save, show a snackbar then navigate back
+    // Navigate back after a successful save
     LaunchedEffect(actionState) {
         when (actionState) {
             is RouteActionState.Success -> {
@@ -101,6 +112,39 @@ fun ZoneMapPickerScreen(
                 viewModel.resetActionState()
             }
             else -> {}
+        }
+    }
+
+    /**
+     * Geocodes [zoneName] using the Android Geocoder (same helper used by MapScreen).
+     * On success: flies the camera to the result, drops the pin there.
+     * On failure: shows a snackbar explaining the issue.
+     *
+     * The zone name text is NOT changed — the driver typed it as the name AND
+     * used it for the search, which is intentional. They can edit after if needed.
+     */
+    fun searchAndPlacePin() {
+        val query = zoneName.trim()
+        if (query.isBlank()) return
+        scope.launch {
+            isSearching = true
+            focusManager.clearFocus()
+            // LocationHelper.getCoordinates is the existing Geocoder helper used by MapScreen
+            val result = LocationHelper.getCoordinates(context, query)
+            isSearching = false
+            if (result != null) {
+                val latLng = LatLng(result.latitude, result.longitude)
+                // Drop the pin at the found location
+                pickedLatLng = latLng
+                // Fly the camera to the result at a neighbourhood-level zoom
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(latLng, 15f)
+                )
+            } else {
+                snackbarHostState.showSnackbar(
+                    "Location \"$query\" not found. Try a different name or long-press on the map."
+                )
+            }
         }
     }
 
@@ -130,7 +174,7 @@ fun ZoneMapPickerScreen(
                 )
             }
 
-            // ---- Map (takes most of the screen) ----
+            // ---- Map (takes the upper portion of the screen) ----
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,7 +191,7 @@ fun ZoneMapPickerScreen(
                         zoomControlsEnabled     = true
                     ),
                     onMapLongClick = { latLng ->
-                        // Long-press anywhere on the map to place / move the zone centre
+                        // Option B: long-press anywhere to drop / move the zone centre pin
                         pickedLatLng = latLng
                     }
                 ) {
@@ -161,25 +205,26 @@ fun ZoneMapPickerScreen(
                         Circle(
                             center      = centre,
                             radius      = radiusMeters.toDouble(),
-                            fillColor   = Color(0x3000C853),   // ~19 % opacity green fill
+                            fillColor   = Color(0x3000C853),   // ~19% opacity green
                             strokeColor = Color(0xFF00C853),   // solid green border
                             strokeWidth = 3f
                         )
                     }
                 }
 
-                // ---- Instruction overlay (shown until first pin is placed) ----
+                // ---- Instruction hint (shown until the first pin is placed) ----
                 if (pickedLatLng == null) {
                     Card(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .padding(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                                .copy(alpha = 0.93f)
                         )
                     ) {
                         Text(
-                            text     = "👆 Long-press map or tap + to set centre",
+                            text     = "🔍 Search by name below  •  long-press map  •  or tap ＋",
                             style    = MaterialTheme.typography.labelSmall,
                             color    = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -187,12 +232,9 @@ fun ZoneMapPickerScreen(
                     }
                 }
 
-                // ---- [+] FAB — bottom-left — places zone centre at current map-camera position ----
-                // This is the fast alternative to long-pressing for drivers who simply
-                // pan the map to the desired location and then tap "+".
+                // ---- [+] FAB (bottom-left) — Option C: pin at current camera centre ----
                 FloatingActionButton(
                     onClick = {
-                        // Use the map camera's current target as the zone centre
                         pickedLatLng = cameraPositionState.position.target
                     },
                     modifier       = Modifier
@@ -206,9 +248,30 @@ fun ZoneMapPickerScreen(
                         contentDescription = "Place zone centre at current map position"
                     )
                 }
+
+                // ---- Search loading indicator (shown while geocoding) ----
+                if (isSearching) {
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("Searching…", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
             }
 
-            // ---- Bottom panel: zone name + radius slider + save button ----
+            // ---- Bottom panel: zone name (with search) + radius + save ----
             Surface(
                 tonalElevation = 3.dp,
                 modifier       = Modifier.fillMaxWidth()
@@ -219,19 +282,50 @@ fun ZoneMapPickerScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
 
-                    // Zone name
+                    // ---- Zone Name field — ALSO serves as a place search box ----
+                    // Pressing the Search keyboard action geocodes the name and flies
+                    // the camera to the result, placing the zone centre pin there.
                     OutlinedTextField(
                         value         = zoneName,
                         onValueChange = { zoneName = it },
-                        label         = { Text("Zone Name") },
-                        placeholder   = { Text("e.g. North Sector, Main Road Area") },
+                        label         = { Text("Zone Name / Search") },
+                        placeholder   = { Text("e.g. Sandton, Main Road Soweto…") },
                         singleLine    = true,
-                        modifier      = Modifier.fillMaxWidth()
+                        modifier      = Modifier.fillMaxWidth(),
+                        // Show a search icon on the right — tapping it triggers geocoding
+                        trailingIcon  = {
+                            if (zoneName.isNotBlank()) {
+                                if (isSearching) {
+                                    CircularProgressIndicator(
+                                        modifier    = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    IconButton(onClick = { searchAndPlacePin() }) {
+                                        Icon(
+                                            imageVector        = Icons.Default.Search,
+                                            contentDescription = "Search for this location"
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        // Pressing the Search key on the keyboard also triggers geocoding
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = { searchAndPlacePin() }
+                        )
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // Helper text explaining what pressing Search does
+                    Text(
+                        text  = "💡 Type an area name and press Search (⌕) to find & pin it on the map",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                    )
 
-                    // Radius slider (100 m – 5 000 m)
+                    // ---- Radius slider (100 m – 5 000 m) ----
                     Row(
                         modifier          = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -245,7 +339,7 @@ fun ZoneMapPickerScreen(
                             value         = radiusMeters,
                             onValueChange = { radiusMeters = it },
                             valueRange    = 100f..5000f,
-                            steps         = 48,             // ~100 m per step
+                            steps         = 48,
                             modifier      = Modifier.weight(1f)
                         )
                         Text(
@@ -257,19 +351,18 @@ fun ZoneMapPickerScreen(
                         )
                     }
 
-                    // Show the picked coordinates for the driver's reference
+                    // Picked coordinates for driver reference
                     pickedLatLng?.let {
                         Text(
                             text  = "📍 ${String.format("%.5f", it.latitude)}, " +
                                     "${String.format("%.5f", it.longitude)}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Save button — disabled until a pin is placed and a name is entered
+                    // ---- Save Zone button ----
                     val isSaving = actionState is RouteActionState.Loading
                     Button(
                         onClick = {
