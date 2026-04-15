@@ -31,6 +31,7 @@ import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
+import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 
 class MainActivity : ComponentActivity() {
@@ -51,8 +52,8 @@ fun SmartWasteManagerAppContent() {
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext
             as SmartWasteManagerApp
 
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val navController      = rememberNavController()
+    val navBackStackEntry  by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
     // ---- ViewModels created ONCE at Activity level (Rule 3) ----
@@ -74,16 +75,18 @@ fun SmartWasteManagerAppContent() {
     val mapViewModel: MapViewModel = viewModel(
         factory = MapViewModel.factory(app.container.mapRepository)
     )
+    // NEW — RouteViewModel uses the same mapRepository (Rule 3)
+    val routeViewModel: RouteViewModel = viewModel(
+        factory = RouteViewModel.factory(app.container.mapRepository)
+    )
 
-    // Reload data after any auth event so it's fresh immediately (Rule 5)
+    // Reload data after any auth event (Rule 5)
     authViewModel.onAuthSuccess = { homeViewModel.loadSchedules() }
 
-    val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
-    val isDriver = currentUser?.role == UserRole.DRIVER
+    val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val isDriver           = currentUser?.role == UserRole.DRIVER
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
-
-    // True when this driver has switched to the user/resident view
-    val isViewingAsUser = isDriver && !isDriverViewActive
+    val isViewingAsUser    = isDriver && !isDriverViewActive
 
     val startDestination = if (app.container.authRepository.isUserSignedIn()) {
         Routes.HOME
@@ -91,18 +94,21 @@ fun SmartWasteManagerAppContent() {
         Routes.LOGIN
     }
 
-    val authRoutes = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
+    val authRoutes    = setOf(Routes.LOGIN, Routes.SIGN_UP, Routes.RESET_PASSWORD)
     val isOnAuthScreen = currentDestination?.route in authRoutes
 
-    val screenTitle = when (currentDestination?.route) {
-        Routes.HOME             -> "Home"
-        Routes.MANAGE_SCHEDULES -> "Manage Schedules"
-        Routes.REPORT           -> "Report Waste"
-        Routes.SCAN             -> "Scan Waste"
-        Routes.REPORT_FORM      -> "Submit Report"
-        Routes.MAP              -> "Map"
-        Routes.GUIDES           -> "Recycling Guides"
-        else                    -> "Smart Waste Manager"
+    val screenTitle = when {
+        currentDestination?.route == Routes.HOME             -> "Home"
+        currentDestination?.route == Routes.MANAGE_SCHEDULES -> "Manage Schedules"
+        currentDestination?.route == Routes.REPORT           -> "Report Waste"
+        currentDestination?.route == Routes.SCAN             -> "Scan Waste"
+        currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
+        currentDestination?.route == Routes.MAP              -> "Map"
+        currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
+        currentDestination?.route == Routes.ZONE_MAP_PICKER  -> "Pick Zone Area"
+        currentDestination?.route == Routes.ZONE_LIST        -> "Collection Zones"
+        currentDestination?.route == Routes.ACTIVE_ROUTE     -> "Active Route"
+        else                                                  -> "Smart Waste Manager"
     }
 
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -110,9 +116,9 @@ fun SmartWasteManagerAppContent() {
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Log Out") },
-            text  = { Text("Are you sure you want to log out?") },
-            confirmButton = {
+            title            = { Text("Log Out") },
+            text             = { Text("Are you sure you want to log out?") },
+            confirmButton    = {
                 TextButton(onClick = {
                     showLogoutDialog = false
                     authViewModel.signOut()
@@ -136,56 +142,57 @@ fun SmartWasteManagerAppContent() {
                     TopAppBar(
                         title = { Text(screenTitle) },
                         actions = {
-                            // View toggle button — drivers only
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
-                                        imageVector = if (isDriverViewActive) Icons.Default.PersonOff
-                                        else Icons.Default.Person,
+                                        imageVector = if (isDriverViewActive)
+                                            Icons.Default.PersonOff
+                                        else
+                                            Icons.Default.Person,
                                         contentDescription = if (isDriverViewActive)
-                                            "Switch to User View" else "Switch to Driver View"
+                                            "Switch to User View"
+                                        else
+                                            "Switch to Driver View"
                                     )
                                 }
                             }
                             IconButton(onClick = { showLogoutDialog = true }) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    imageVector        = Icons.AutoMirrored.Filled.Logout,
                                     contentDescription = "Log out"
                                 )
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            containerColor      = MaterialTheme.colorScheme.primaryContainer,
+                            titleContentColor   = MaterialTheme.colorScheme.onPrimaryContainer,
                             actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     )
 
                     // ---- Global "Viewing as User" banner (Rule 13) ----
-                    // Shown on EVERY screen when driver is in User View.
-                    // DO NOT add per-screen copies of this banner.
                     if (isViewingAsUser) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.tertiaryContainer)
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment     = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = "👀  Viewing as User  —  tap ",
+                                text  = "👀  Viewing as User  —  tap ",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                             Icon(
-                                imageVector = Icons.Default.Person,
+                                imageVector        = Icons.Default.Person,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.size(16.dp)
+                                tint               = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier           = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "  to switch back",
+                                text  = "  to switch back",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
@@ -210,7 +217,7 @@ fun SmartWasteManagerAppContent() {
                                         saveState = true
                                     }
                                     launchSingleTop = true
-                                    restoreState   = true
+                                    restoreState    = true
                                 }
                             }
                         )
@@ -226,6 +233,7 @@ fun SmartWasteManagerAppContent() {
             homeViewModel    = homeViewModel,
             reportViewModel  = reportViewModel,
             mapViewModel     = mapViewModel,
+            routeViewModel   = routeViewModel,   // NEW
             modifier         = Modifier.padding(innerPadding)
         )
     }

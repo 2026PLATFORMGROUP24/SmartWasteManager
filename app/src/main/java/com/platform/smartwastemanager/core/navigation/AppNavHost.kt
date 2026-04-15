@@ -5,8 +5,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.auth.presentation.LoginScreen
@@ -16,8 +18,12 @@ import com.platform.smartwastemanager.features.guide.presentation.GuideListScree
 import com.platform.smartwastemanager.features.home.presentation.HomeScreen
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.home.presentation.ScheduleManagementScreen
+import com.platform.smartwastemanager.features.map.presentation.ActiveRouteScreen
 import com.platform.smartwastemanager.features.map.presentation.MapScreen
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
+import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
+import com.platform.smartwastemanager.features.map.presentation.ZoneListScreen
+import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
@@ -31,15 +37,13 @@ fun AppNavHost(
     homeViewModel: HomeViewModel,
     reportViewModel: ReportViewModel,
     mapViewModel: MapViewModel,
+    routeViewModel: RouteViewModel,       // NEW — passed in from MainActivity (Rule 3)
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
 
-    val isDriver = currentUser?.role == UserRole.DRIVER
-
-    // True only when the user IS a driver AND is currently in driver view (not user-view).
-    // Regular users: false. Drivers in user-view: false. Drivers in driver-view: true.
+    val isDriver             = currentUser?.role == UserRole.DRIVER
     val isDriverInDriverView = isDriver && isDriverViewActive
 
     NavHost(
@@ -87,7 +91,14 @@ fun AppNavHost(
                 onNavigateToManage = { navController.navigate(Routes.MANAGE_SCHEDULES) },
                 onNavigateToGuide  = { guideId ->
                     navController.navigate(Routes.buildGuideDetail(guideId))
-                }
+                },
+                // NEW: driver card tap navigates to zone list instead of guide
+                onNavigateToZones  = { scheduleDayId, scheduleDayName ->
+                    navController.navigate(
+                        Routes.buildZoneList(scheduleDayId, scheduleDayName)
+                    )
+                },
+                isDriverInDriverView = isDriverInDriverView
             )
         }
 
@@ -95,6 +106,58 @@ fun AppNavHost(
             ScheduleManagementScreen(
                 viewModel      = homeViewModel,
                 driverUid      = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // ==================== ZONES (driver routes feature) ====================
+
+        composable(
+            route = Routes.ZONE_LIST,
+            arguments = listOf(
+                navArgument("scheduleDayId")   { type = NavType.StringType },
+                navArgument("scheduleDayName") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId") ?: ""
+            val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
+
+            ZoneListScreen(
+                viewModel       = routeViewModel,
+                scheduleDayId   = scheduleDayId,
+                scheduleDayName = scheduleDayName,
+                driverUid       = currentUser?.uid ?: "",
+                onNavigateBack  = { navController.popBackStack() },
+                onAddZone       = { navController.navigate(Routes.ZONE_MAP_PICKER) },
+                onLoadRoute     = { zone ->
+                    // Trigger route calculation then navigate to active route screen
+                    routeViewModel.loadRouteForZone(zone)
+                    navController.navigate(Routes.buildActiveRoute(zone.name))
+                }
+            )
+        }
+
+        composable(Routes.ZONE_MAP_PICKER) {
+            ZoneMapPickerScreen(
+                viewModel      = routeViewModel,
+                driverUid      = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.ACTIVE_ROUTE,
+            arguments = listOf(
+                navArgument("zoneName") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            // Decode underscores back to spaces for display
+            val zoneName = (backStackEntry.arguments?.getString("zoneName") ?: "")
+                .replace("_", " ")
+
+            ActiveRouteScreen(
+                viewModel      = routeViewModel,
+                zoneName       = zoneName,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -138,8 +201,6 @@ fun AppNavHost(
         composable(Routes.MAP) {
             MapScreen(
                 viewModel            = mapViewModel,
-                // Pins are only visible to drivers actively in driver view.
-                // Regular users and drivers in user-view see an empty map.
                 isDriverInDriverView = isDriverInDriverView
             )
         }

@@ -11,10 +11,13 @@ import com.platform.smartwastemanager.features.report.domain.WasteImageClassifie
 
 /**
  * AppContainer holds every repository for the lifetime of the app.
- * It is created once inside SmartWasteManagerApp and accessed via
+ * Created once in SmartWasteManagerApp.onCreate() and accessed via
  * (applicationContext as SmartWasteManagerApp).container
  *
- * We now require a Context so that ViewToggleRepository can access DataStore.
+ * Context is required for ViewToggleRepository (DataStore) and WasteImageClassifier.
+ *
+ * NOTE: mapRepository is reused by both MapViewModel and RouteViewModel —
+ * there is only one instance, keeping Firestore listeners efficient.
  */
 class AppContainer(context: Context) {
 
@@ -28,10 +31,10 @@ class AppContainer(context: Context) {
     val viewToggleRepository = ViewToggleRepository(context)
 
     // ---- Waste Reports ----
-    val reportRepository = ReportRepository()
+    val reportRepository     = ReportRepository()
     val wasteImageClassifier = WasteImageClassifier(context)
 
-    // ---- Map ----
+    // ---- Map  + Routes (shared repository — one Firestore connection) ----
     val mapRepository = MapRepository()
 
     // ---- Guides ----
