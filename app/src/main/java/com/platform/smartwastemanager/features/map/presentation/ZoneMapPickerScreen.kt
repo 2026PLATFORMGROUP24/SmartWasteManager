@@ -27,16 +27,17 @@ import com.platform.smartwastemanager.core.util.LocationHelper
  * ZoneMapPickerScreen — lets the driver visually pick a zone centre on the map.
  *
  * The driver:
- *   1. Long-presses (or uses "Set Here" button) to place a marker at the zone centre.
- *   2. Uses a slider to set the radius.
- *   3. Types a name for the zone.
- *   4. Taps "Save Zone".
+ *   1. Long-presses on the map to place a pin (zone centre), OR
+ *   2. Taps the [+] FAB (bottom-left) to use the current map-camera centre.
+ *   3. Uses a slider to set the radius.
+ *   4. Types a name for the zone.
+ *   5. Taps "Save Zone".
  *
- * A semi-transparent green circle (drawn as a GoogleMaps Circle) shows the zone boundary.
+ * A semi-transparent green circle shows the zone boundary in real-time.
  *
- * @param viewModel     RouteViewModel — addZone is called on save.
- * @param driverUid     Current driver's UID.
- * @param onNavigateBack Pop back to ZoneListScreen (zone list will refresh via Firestore listener).
+ * @param viewModel      RouteViewModel — addZone() is called on save.
+ * @param driverUid      Current driver's UID.
+ * @param onNavigateBack Pop back to ZoneListScreen (list refreshes via Firestore listener).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -45,17 +46,17 @@ fun ZoneMapPickerScreen(
     driverUid: String,
     onNavigateBack: () -> Unit
 ) {
-    val actionState by viewModel.actionState.collectAsStateWithLifecycle()
-    val context     = LocalContext.current
+    val actionState       by viewModel.actionState.collectAsStateWithLifecycle()
+    val context           = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     // ---- Form state ----
     var zoneName     by remember { mutableStateOf("") }
     var pickedLatLng by remember { mutableStateOf<LatLng?>(null) }
-    var radiusMeters by remember { mutableFloatStateOf(500f) }  // slider 100–5000 m
+    var radiusMeters by remember { mutableFloatStateOf(500f) }   // slider 100–5 000 m
 
     // ---- Map state ----
-    val defaultPosition = LatLng(-26.2041, 28.0473)
+    val defaultPosition = LatLng(-26.2041, 28.0473)   // Johannesburg fallback
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
@@ -67,7 +68,7 @@ fun ZoneMapPickerScreen(
         )
     )
 
-    // Move camera to current location on start
+    // Move camera to device location when the screen opens
     LaunchedEffect(Unit) {
         if (locationPermissions.allPermissionsGranted) {
             val geoPoint = LocationHelper.getCurrentLocation(context)
@@ -83,16 +84,20 @@ fun ZoneMapPickerScreen(
         }
     }
 
-    // ---- React to save success: navigate back ----
+    // After a successful save, show a snackbar then navigate back
     LaunchedEffect(actionState) {
         when (actionState) {
             is RouteActionState.Success -> {
-                snackbarHostState.showSnackbar((actionState as RouteActionState.Success).message)
+                snackbarHostState.showSnackbar(
+                    (actionState as RouteActionState.Success).message
+                )
                 viewModel.resetActionState()
-                onNavigateBack()        // Return to zone list after successful save
+                onNavigateBack()
             }
             is RouteActionState.Error -> {
-                snackbarHostState.showSnackbar((actionState as RouteActionState.Error).message)
+                snackbarHostState.showSnackbar(
+                    (actionState as RouteActionState.Error).message
+                )
                 viewModel.resetActionState()
             }
             else -> {}
@@ -132,79 +137,78 @@ fun ZoneMapPickerScreen(
                     .weight(1f)
             ) {
                 GoogleMap(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier            = Modifier.fillMaxSize(),
                     cameraPositionState = cameraPositionState,
-                    properties = MapProperties(
+                    properties          = MapProperties(
                         isMyLocationEnabled = locationPermissions.allPermissionsGranted
                     ),
-                    uiSettings = MapUiSettings(
+                    uiSettings          = MapUiSettings(
                         myLocationButtonEnabled = true,
-                        zoomControlsEnabled = true
+                        zoomControlsEnabled     = true
                     ),
                     onMapLongClick = { latLng ->
-                        // Long-press on the map to set the zone centre
+                        // Long-press anywhere on the map to place / move the zone centre
                         pickedLatLng = latLng
                     }
                 ) {
                     pickedLatLng?.let { centre ->
-                        // Pin at zone centre
+                        // Pin at the chosen zone centre
                         Marker(
                             state = rememberMarkerState(position = centre),
                             title = zoneName.ifBlank { "Zone Centre" }
                         )
-                        // Semi-transparent green circle showing the zone boundary
+                        // Semi-transparent green circle previewing the zone boundary
                         Circle(
                             center      = centre,
                             radius      = radiusMeters.toDouble(),
-                            fillColor   = Color(0x3000C853),  // 19% opacity green
-                            strokeColor = Color(0xFF00C853),  // solid green border
+                            fillColor   = Color(0x3000C853),   // ~19 % opacity green fill
+                            strokeColor = Color(0xFF00C853),   // solid green border
                             strokeWidth = 3f
                         )
                     }
                 }
 
-                // ---- "Use Current Location" button overlaid on map ----
-                if (locationPermissions.allPermissionsGranted) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            // Place zone centre at device's current location
-                            // We read the camera's current position as a reasonable proxy
-                            pickedLatLng = cameraPositionState.position.target
-                        },
-                        modifier       = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(12.dp),
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = "Use current map centre as zone centre",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-
-                // ---- Instruction overlay ----
+                // ---- Instruction overlay (shown until first pin is placed) ----
                 if (pickedLatLng == null) {
                     Card(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(12.dp),
+                            .padding(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
                         )
                     ) {
                         Text(
-                            text     = "👆 Long-press on the map to place the zone centre",
-                            style    = MaterialTheme.typography.bodySmall,
+                            text     = "👆 Long-press map or tap + to set centre",
+                            style    = MaterialTheme.typography.labelSmall,
                             color    = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(10.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
                     }
                 }
+
+                // ---- [+] FAB — bottom-left — places zone centre at current map-camera position ----
+                // This is the fast alternative to long-pressing for drivers who simply
+                // pan the map to the desired location and then tap "+".
+                FloatingActionButton(
+                    onClick = {
+                        // Use the map camera's current target as the zone centre
+                        pickedLatLng = cameraPositionState.position.target
+                    },
+                    modifier       = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp),
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor   = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(
+                        imageVector        = Icons.Default.Add,
+                        contentDescription = "Place zone centre at current map position"
+                    )
+                }
             }
 
-            // ---- Bottom panel: name + radius + save ----
+            // ---- Bottom panel: zone name + radius slider + save button ----
             Surface(
                 tonalElevation = 3.dp,
                 modifier       = Modifier.fillMaxWidth()
@@ -215,7 +219,7 @@ fun ZoneMapPickerScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
 
-                    // Zone name field
+                    // Zone name
                     OutlinedTextField(
                         value         = zoneName,
                         onValueChange = { zoneName = it },
@@ -227,21 +231,21 @@ fun ZoneMapPickerScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Radius slider
+                    // Radius slider (100 m – 5 000 m)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier          = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text  = "Radius:",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text     = "Radius:",
+                            style    = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.width(60.dp)
                         )
                         Slider(
                             value         = radiusMeters,
                             onValueChange = { radiusMeters = it },
                             valueRange    = 100f..5000f,
-                            steps         = 48,           // steps of ~100 m
+                            steps         = 48,             // ~100 m per step
                             modifier      = Modifier.weight(1f)
                         )
                         Text(
@@ -253,10 +257,11 @@ fun ZoneMapPickerScreen(
                         )
                     }
 
-                    // Show picked location for driver's reference
+                    // Show the picked coordinates for the driver's reference
                     pickedLatLng?.let {
                         Text(
-                            text  = "📍 ${String.format("%.5f", it.latitude)}, ${String.format("%.5f", it.longitude)}",
+                            text  = "📍 ${String.format("%.5f", it.latitude)}, " +
+                                    "${String.format("%.5f", it.longitude)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -264,20 +269,17 @@ fun ZoneMapPickerScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Save button
+                    // Save button — disabled until a pin is placed and a name is entered
                     val isSaving = actionState is RouteActionState.Loading
                     Button(
                         onClick = {
-                            val centre = pickedLatLng
-                            if (centre == null) {
-                                return@Button
-                            }
+                            val centre = pickedLatLng ?: return@Button
                             viewModel.addZone(
-                                name          = zoneName,
-                                centerLat     = centre.latitude,
-                                centerLng     = centre.longitude,
-                                radiusMeters  = radiusMeters.toDouble(),
-                                driverUid     = driverUid
+                                name         = zoneName,
+                                centerLat    = centre.latitude,
+                                centerLng    = centre.longitude,
+                                radiusMeters = radiusMeters.toDouble(),
+                                driverUid    = driverUid
                             )
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -285,15 +287,15 @@ fun ZoneMapPickerScreen(
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
+                                modifier    = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color       = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
                             Icon(Icons.Default.Save, contentDescription = null)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isSaving) "Saving..." else "Save Zone")
+                        Text(if (isSaving) "Saving…" else "Save Zone")
                     }
                 }
             }
