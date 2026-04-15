@@ -21,19 +21,32 @@ object Routes {
     const val GUIDE_EDITOR      = "guides/editor"
     const val GUIDE_EDITOR_EDIT = "guides/editor/{guideId}"
 
-    // ---- Location picker (new — for waste report form) ----
-    const val LOCATION_PICKER   = "report/location-picker"
+    // ---- Location picker (for waste report form) ----
+    const val LOCATION_PICKER = "report/location-picker"
 
-    // ---- Routes feature ----
-    const val ZONE_LIST       = "home/zones/{scheduleDayId}/{scheduleDayName}"
-    const val ZONE_MAP_PICKER = "home/zones/picker"
-    const val ACTIVE_ROUTE    = "home/zones/active-route/{zoneName}"
+    // ---- Zones & Routes feature ----
+    // ZoneListScreen: shows zones assigned to a specific schedule day
+    const val ZONE_LIST = "home/zones/{scheduleDayId}/{scheduleDayName}"
+
+    // ZonePickerScreen: lets driver pick from all global zones to assign to a day
+    const val ZONE_PICKER = "home/zones/picker/{scheduleDayId}/{scheduleDayName}"
+
+    // ManageZonesScreen: global zone CRUD (create/delete zones, no day association)
+    const val MANAGE_ZONES = "home/zones/manage"
+
+    // ZoneMapPickerScreen: map UI for creating a new global zone
+    const val ZONE_MAP_PICKER = "home/zones/map-picker"
+
+    // ActiveRouteScreen: turn-by-turn driving route
+    const val ACTIVE_ROUTE = "home/zones/active-route/{zoneName}"
 
     // ---- Helpers ----
-    fun buildGuideDetail(guideId: String)  = "guides/$guideId"
-    fun buildGuideEditor(guideId: String)  = "guides/editor/$guideId"
+    fun buildGuideDetail(guideId: String) = "guides/$guideId"
+    fun buildGuideEditor(guideId: String) = "guides/editor/$guideId"
     fun buildZoneList(scheduleDayId: String, scheduleDayName: String) =
         "home/zones/$scheduleDayId/$scheduleDayName"
+    fun buildZonePicker(scheduleDayId: String, scheduleDayName: String) =
+        "home/zones/picker/$scheduleDayId/$scheduleDayName"
     fun buildActiveRoute(zoneName: String) =
         "home/zones/active-route/${zoneName.replace(" ", "_")}"
 }

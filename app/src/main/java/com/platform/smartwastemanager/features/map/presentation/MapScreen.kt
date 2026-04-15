@@ -1,6 +1,8 @@
 package com.platform.smartwastemanager.features.map.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -36,10 +38,6 @@ import java.util.Locale
  * Map screen — shows pending waste report pins and, for drivers in driver view,
  * also shows their zone circles as overlays.
  *
- * NEW: When [isDriverInDriverView] is true and [driverUid] is provided, the
- * ViewModel loads all zones created by that driver and renders them as
- * semi-transparent green circles with name labels.
- *
  * @param driverUid  UID of the signed-in user. Pass empty string for non-drivers.
  *                   Used to load zone overlays for drivers.
  */
@@ -50,14 +48,14 @@ fun MapScreen(
     isDriverInDriverView: Boolean,
     driverUid: String = ""
 ) {
-    val uiState      by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
     val isDismissMode by viewModel.isDismissMode.collectAsStateWithLifecycle()
     val pinToConfirm  by viewModel.pinToConfirmDismiss.collectAsStateWithLifecycle()
     val driverZones   by viewModel.driverZones.collectAsStateWithLifecycle()
 
-    val context      = LocalContext.current
-    val scope        = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
+    val context           = LocalContext.current
+    val scope             = rememberCoroutineScope()
+    val focusManager      = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -104,9 +102,7 @@ fun MapScreen(
         }
     }
 
-    // Load / clear driver zones based on view mode.
-    // When driver enters driver view, start streaming their zones.
-    // When they leave, stop the stream and clear the list.
+    // Load / clear driver zones based on view mode
     LaunchedEffect(isDriverInDriverView, driverUid) {
         if (isDriverInDriverView && driverUid.isNotBlank()) {
             viewModel.loadDriverZones(driverUid)
@@ -177,8 +173,6 @@ fun MapScreen(
                 }
 
                 // ---- Driver zone overlays (driver view only) ----
-                // Each zone is drawn as a semi-transparent green circle with a
-                // marker at the centre showing the zone name.
                 if (isDriverInDriverView) {
                     driverZones.forEach { zone ->
                         ZoneOverlay(zone = zone)
@@ -216,13 +210,13 @@ fun MapScreen(
                         onValueChange = { searchQuery = it },
                         placeholder   = { Text("Search location...") },
                         modifier      = Modifier.weight(1f),
-                        colors = TextFieldDefaults.colors(
+                        colors        = TextFieldDefaults.colors(
                             focusedContainerColor   = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
                             focusedIndicatorColor   = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent,
                         ),
-                        singleLine    = true,
+                        singleLine      = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
@@ -247,7 +241,10 @@ fun MapScreen(
                         )
                     )
                     if (isSearching) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
                     } else if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear")
@@ -264,7 +261,7 @@ fun MapScreen(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(top = 80.dp, start = 16.dp),
-                    colors   = CardDefaults.cardColors(
+                    colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer
                             .copy(alpha = 0.93f)
                     ),
@@ -274,23 +271,21 @@ fun MapScreen(
                         modifier          = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Small green circle swatch to match the zone circles on map
+                        // Small green circle swatch — background import now present
                         Box(
-                            modifier = androidx.compose.ui.Modifier
+                            modifier = Modifier
                                 .size(12.dp)
-                                .then(
-                                    Modifier.background(
-                                        Color(0xFF00C853),
-                                        androidx.compose.foundation.shape.CircleShape
-                                    )
+                                .background(
+                                    color = Color(0xFF00C853),
+                                    shape = CircleShape
                                 )
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text  = "${driverZones.size} zone${if (driverZones.size != 1) "s" else ""} shown",
-                            style = MaterialTheme.typography.labelSmall,
+                            text       = "${driverZones.size} zone${if (driverZones.size != 1) "s" else ""} shown",
+                            style      = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color      = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
@@ -305,7 +300,9 @@ fun MapScreen(
                 }
                 is MapUiState.Error -> {
                     Card(
-                        modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp),
                         colors   = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         )
@@ -377,7 +374,7 @@ fun MapScreen(
                         else Icons.Default.DeleteSweep,
                         contentDescription = if (isDismissMode) "Exit dismiss mode"
                         else "Enter dismiss mode",
-                        tint = if (isDismissMode) Color.White
+                        tint               = if (isDismissMode) Color.White
                         else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
@@ -411,7 +408,7 @@ fun MapScreen(
                 Icon(
                     Icons.Default.MyLocation,
                     contentDescription = "My Location",
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    tint               = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
@@ -422,26 +419,18 @@ fun MapScreen(
 // ZoneOverlay — draws one zone circle + centre marker on the map
 // =====================================================================
 
-/**
- * Draws a driver's zone as a semi-transparent green circle overlay.
- * A marker at the centre shows the zone name in an info window.
- *
- * These are only rendered when [isDriverInDriverView] is true in [MapScreen].
- */
 @Composable
 private fun ZoneOverlay(zone: Zone) {
     val centre = LatLng(zone.centerLat, zone.centerLng)
 
-    // Semi-transparent green fill with solid border (matches zone picker style)
     Circle(
         center      = centre,
         radius      = zone.radiusMeters,
-        fillColor   = Color(0x2200C853),   // ~13 % opacity green fill
-        strokeColor = Color(0xFF00C853),   // solid green border
+        fillColor   = Color(0x2200C853),
+        strokeColor = Color(0xFF00C853),
         strokeWidth = 2f
     )
 
-    // Centre marker — cyan hue to distinguish from report pins
     Marker(
         state   = rememberMarkerState(position = centre),
         title   = "📍 ${zone.name}",
@@ -451,7 +440,7 @@ private fun ZoneOverlay(zone: Zone) {
 }
 
 // =====================================================================
-// MapPinMarker — waste report pin (unchanged)
+// MapPinMarker — waste report pin
 // =====================================================================
 
 @Composable
@@ -497,8 +486,16 @@ private fun MapPinMarker(
                 else
                     MaterialTheme.colorScheme.primary
             )
-            Text("📍 ${pin.streetName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("🕐 $formattedTime", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "📍 ${pin.streetName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "🕐 $formattedTime",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

@@ -33,8 +33,15 @@ sealed class ReportUiState {
  * - Form field values (category, reportType, streetName, location)
  * - TFLite classification from a camera bitmap
  * - GPS location fetching and reverse geocoding
- * - Manual map-based location picking (new)
+ * - Manual map-based location picking
  * - Firestore submission via ReportRepository
+ *
+ * Manual location guard:
+ *   [setManualLocation] sets [_isManualLocation] = true.
+ *   [fetchLocation] is guarded by the form's LaunchedEffect checks on [isManualLocation],
+ *   so GPS never overwrites a manually chosen pin on recompose.
+ *   [clearManualAndFetchGps] resets the flag and fetches fresh GPS — called by the
+ *   GPS refresh button in ReportFormScreen when the user explicitly wants to revert.
  */
 class ReportViewModel(
     private val reportRepository: ReportRepository,
@@ -65,8 +72,8 @@ class ReportViewModel(
     // ---- Location state ----
 
     /**
-     * The GPS GeoPoint that will actually be saved to Firestore.
-     * Updated by fetchLocation() (GPS auto) or setManualLocation() (map pick).
+     * The GeoPoint that will actually be saved to Firestore.
+     * Updated by [fetchLocation] (GPS auto) or [setManualLocation] (map pick).
      */
     private val _location = MutableStateFlow(GeoPoint(0.0, 0.0))
     val location: StateFlow<GeoPoint> = _location.asStateFlow()
@@ -86,33 +93,38 @@ class ReportViewModel(
     /**
      * True when the user has manually pinned a location on the map
      * instead of relying on auto-GPS.
-     * The form uses this to show an appropriate status label.
+     *
+     * When true the form's LaunchedEffect blocks skip [fetchLocation],
+     * preventing the manually chosen pin from being overwritten on recompose.
+     * Reset to false by [resetForm] and [clearManualAndFetchGps].
      */
     private val _isManualLocation = MutableStateFlow(false)
     val isManualLocation: StateFlow<Boolean> = _isManualLocation.asStateFlow()
 
     // ---- Setters ----
 
-    fun setCategory(category: String)  { _selectedCategory.value = category }
-    fun setReportType(type: String)    { _selectedReportType.value = type }
-    fun setStreetName(name: String)    { _streetName.value = name }
+    fun setCategory(category: String) { _selectedCategory.value = category }
+    fun setReportType(type: String)   { _selectedReportType.value = type }
+    fun setStreetName(name: String)   { _streetName.value = name }
 
     /**
-     * Called when the user confirms a location on the LocationPickerMapScreen.
+     * Called when the user confirms a location on LocationPickerMapScreen.
      *
      * Stores the picked [LatLng] as a [GeoPoint], marks the location as manually
      * chosen, and reverse-geocodes the coordinates to fill the street name field.
+     * After this call the form's LaunchedEffect blocks will NOT call [fetchLocation],
+     * preserving these coordinates until [resetForm] or [clearManualAndFetchGps].
      *
      * @param context  Needed for the Geocoder reverse-lookup.
-     * @param latLng   The coordinates the user pinned on the map.
+     * @param latLng   The coordinates the user confirmed on the map.
      */
     fun setManualLocation(context: Context, latLng: LatLng) {
         viewModelScope.launch {
             _isLocating.value = true
             val geoPoint = GeoPoint(latLng.latitude, latLng.longitude)
             _location.value = geoPoint
+            // Set the flag BEFORE the geocode so it is true even during the async wait
             _isManualLocation.value = true
-            // Reverse-geocode so the street name field auto-fills from the pin
             _streetName.value = LocationHelper.getStreetName(context, geoPoint)
             _isLocating.value = false
         }
@@ -120,17 +132,33 @@ class ReportViewModel(
 
     /**
      * Fetches the device's current GPS location and reverse-geocodes it.
-     * Clears the manual-location flag — reverts to auto-GPS mode.
+     *
+     * Always resets [_isManualLocation] to false so a fresh GPS position
+     * replaces any previous manual pin.
      */
     fun fetchLocation(context: Context) {
         viewModelScope.launch {
             _isLocating.value = true
-            _isManualLocation.value = false   // back to GPS mode
+            _isManualLocation.value = false   // revert to GPS mode
             val geoPoint = LocationHelper.getCurrentLocation(context)
             _location.value = geoPoint
             _streetName.value = LocationHelper.getStreetName(context, geoPoint)
             _isLocating.value = false
         }
+    }
+
+    /**
+     * Explicitly clears the manual-location flag and fetches a fresh GPS location.
+     *
+     * Called by the GPS refresh button (↺) in ReportFormScreen when the user
+     * deliberately wants to revert from a manually picked pin back to their
+     * device's current location. Unlike the guarded LaunchedEffect blocks,
+     * this always runs regardless of [_isManualLocation].
+     *
+     * Delegates to [fetchLocation] which already resets [_isManualLocation].
+     */
+    fun clearManualAndFetchGps(context: Context) {
+        fetchLocation(context)
     }
 
     /**
@@ -141,10 +169,10 @@ class ReportViewModel(
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
             val result = wasteImageClassifier.classify(bitmap)
-            _selectedCategory.value  = result.category.displayName
-            _aiLabels.value          = result.topLabels
-            _aiDebugInfo.value       = result.debugInfo
-            _isLowConfidence.value   = result.lowConfidence
+            _selectedCategory.value = result.category.displayName
+            _aiLabels.value         = result.topLabels
+            _aiDebugInfo.value      = result.debugInfo
+            _isLowConfidence.value  = result.lowConfidence
             _uiState.value = ReportUiState.Idle
         }
     }

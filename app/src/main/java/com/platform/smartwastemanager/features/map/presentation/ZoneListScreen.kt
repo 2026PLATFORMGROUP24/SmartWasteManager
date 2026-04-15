@@ -13,52 +13,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.map.domain.Zone
 
 /**
  * ZoneListScreen — shown when a driver taps a schedule card on HomeScreen.
  *
- * Displays the list of zones/areas associated with the selected collection day.
+ * Shows the zones currently assigned to this schedule day.
  * The driver can:
- *   - See existing zones on a mini-map circle indicator
- *   - Add a new zone (navigates to ZoneMapPickerScreen)
- *   - Delete a zone (with confirmation)
- *   - Tap "Load Route" on a zone to calculate + navigate to ActiveRouteScreen
- *
- * @param viewModel       RouteViewModel (created in MainActivity, passed in).
- * @param scheduleDayId   Firestore document ID of the CollectionDay tapped.
- * @param scheduleDayName Human-readable day name, e.g. "Monday", shown in the title.
- * @param driverUid       Current driver's UID, needed when creating a zone.
- * @param onNavigateBack  Pop back to HomeScreen.
- * @param onAddZone       Navigate to ZoneMapPickerScreen to draw a new zone.
- * @param onLoadRoute     Called with a [Zone] when driver taps "Load Route".
- *                        Navigate to ActiveRouteScreen after this.
+ *   - Unassign a zone from this day (zone is NOT deleted globally).
+ *   - Tap "Assign Zone" FAB to open ZonePickerScreen and pick from global zones.
+ *   - Tap "Manage Zones" to open ManageZonesScreen (global zone create/delete).
+ *   - Tap "Load Route" on a zone to navigate to ActiveRouteScreen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ZoneListScreen(
     viewModel: RouteViewModel,
-    scheduleDayId: String,
-    scheduleDayName: String,
-    driverUid: String,
+    schedule: CollectionDay,
     onNavigateBack: () -> Unit,
-    onAddZone: () -> Unit,
+    onAssignZone: () -> Unit,
+    onManageZones: () -> Unit,
     onLoadRoute: (Zone) -> Unit
 ) {
-    // Load zones for this schedule day when the screen first appears
-    LaunchedEffect(scheduleDayId) {
-        viewModel.loadZonesForDay(scheduleDayId)
+    // Load the zones assigned to this schedule day when the screen opens
+    LaunchedEffect(schedule.id) {
+        viewModel.loadZonesForSchedule(schedule)
     }
 
     val zoneListState by viewModel.zoneListUiState.collectAsStateWithLifecycle()
     val actionState   by viewModel.actionState.collectAsStateWithLifecycle()
-
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Zone pending deletion (for confirmation dialog)
-    var zoneToDelete by remember { mutableStateOf<Zone?>(null) }
+    // Zone pending unassignment confirmation
+    var zoneToUnassign by remember { mutableStateOf<Zone?>(null) }
 
-    // Show snackbar feedback for add/delete/error actions
+    // Show feedback snackbars
     LaunchedEffect(actionState) {
         when (actionState) {
             is RouteActionState.Success -> {
@@ -73,24 +63,27 @@ fun ZoneListScreen(
         }
     }
 
-    // ---- Delete confirmation dialog ----
-    if (zoneToDelete != null) {
+    // ---- Unassign confirmation dialog ----
+    if (zoneToUnassign != null) {
         AlertDialog(
-            onDismissRequest = { zoneToDelete = null },
-            title = { Text("Delete Zone?") },
+            onDismissRequest = { zoneToUnassign = null },
+            title = { Text("Remove Zone?") },
             text  = {
-                Text("Delete zone '${zoneToDelete!!.name}'? This cannot be undone.")
+                Text(
+                    "Remove '${zoneToUnassign!!.name}' from ${schedule.dayOfWeek}?\n\n" +
+                            "The zone itself will NOT be deleted — it can be re-assigned later."
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteZone(zoneToDelete!!.id)
-                    zoneToDelete = null
+                    viewModel.unassignZoneFromSchedule(zoneToUnassign!!.id)
+                    zoneToUnassign = null
                 }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { zoneToDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { zoneToUnassign = null }) { Text("Cancel") }
             }
         )
     }
@@ -98,13 +91,12 @@ fun ZoneListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            // FAB to add a new zone
             ExtendedFloatingActionButton(
-                onClick          = onAddZone,
-                icon             = { Icon(Icons.Default.AddLocation, contentDescription = null) },
-                text             = { Text("Add Zone") },
-                containerColor   = MaterialTheme.colorScheme.primary,
-                contentColor     = MaterialTheme.colorScheme.onPrimary
+                onClick        = onAssignZone,
+                icon           = { Icon(Icons.Default.AddLocation, contentDescription = null) },
+                text           = { Text("Assign Zone") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor   = MaterialTheme.colorScheme.onPrimary
             )
         }
     ) { innerPadding ->
@@ -115,77 +107,82 @@ fun ZoneListScreen(
                 .padding(horizontal = 16.dp)
         ) {
 
-            // ---- Screen header ----
+            // ---- Header ----
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(vertical = 16.dp)
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text  = "$scheduleDayName — Collection Zones",
+                        text  = "${schedule.dayOfWeek} — Collection Zones",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text  = "Tap 'Load Route' to start a collection run",
+                        text  = "Zones assigned to this collection day",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // ---- Content: loading / empty / list ----
+            // ---- "Manage Zones" button — navigates to global zone CRUD ----
+            OutlinedButton(
+                onClick  = onManageZones,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Icon(Icons.Default.EditLocation, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Manage Global Zones")
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ---- Content ----
             when (val state = zoneListState) {
 
                 is ZoneListUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
 
                 is ZoneListUiState.Error -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text  = state.message,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(state.message, color = MaterialTheme.colorScheme.error)
                     }
                 }
 
                 is ZoneListUiState.Success -> {
                     if (state.zones.isEmpty()) {
-                        // Empty state
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(bottom = 80.dp), // leave room for FAB
+                                .padding(bottom = 80.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Default.AddLocation,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint     = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(64.dp)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text  = "No zones yet.",
+                                    "No zones assigned yet.",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text  = "Tap 'Add Zone' to define a collection area.",
+                                    "Tap 'Assign Zone' to link a zone to ${schedule.dayOfWeek}.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -194,14 +191,14 @@ fun ZoneListScreen(
                     } else {
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(bottom = 88.dp) // FAB clearance
+                            contentPadding      = PaddingValues(bottom = 88.dp)
                         ) {
                             items(state.zones, key = { it.id }) { zone ->
-                                ZoneCard(
+                                AssignedZoneCard(
                                     zone          = zone,
                                     actionState   = actionState,
                                     onLoadRoute   = { onLoadRoute(zone) },
-                                    onDeleteClick = { zoneToDelete = zone }
+                                    onUnassign    = { zoneToUnassign = zone }
                                 )
                             }
                         }
@@ -213,43 +210,39 @@ fun ZoneListScreen(
 }
 
 /**
- * A card representing one zone.
- *
- * Shows:
- *   - Zone name
- *   - Radius in metres
- *   - Coordinates of the centre
- *   - "Load Route" button (primary action)
- *   - Delete icon button
+ * Card for a zone assigned to the current schedule day.
+ * Shows zone name, radius, coordinates, a Load Route button, and an unassign button.
  */
 @Composable
-private fun ZoneCard(
+private fun AssignedZoneCard(
     zone: Zone,
     actionState: RouteActionState,
     onLoadRoute: () -> Unit,
-    onDeleteClick: () -> Unit
+    onUnassign: () -> Unit
 ) {
-    val isLoadingRoute = actionState is RouteActionState.Loading
+    val isLoading = actionState is RouteActionState.Loading
 
     Card(
         modifier  = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
 
-            // ---- Zone name row + delete button ----
+            // Zone name row + unassign button
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.LocationOn,
+                        imageVector        = Icons.Default.LocationOn,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -258,20 +251,21 @@ private fun ZoneCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                IconButton(onClick = onDeleteClick) {
+                // Unassign = remove from this day (not a global delete)
+                IconButton(onClick = onUnassign) {
                     Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = "Delete zone",
-                        tint = MaterialTheme.colorScheme.error
+                        imageVector        = Icons.Default.LinkOff,
+                        contentDescription = "Remove from this day",
+                        tint               = MaterialTheme.colorScheme.error
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // ---- Zone details ----
             Text(
-                text  = "📍 ${String.format("%.4f", zone.centerLat)}, ${String.format("%.4f", zone.centerLng)}",
+                text  = "📍 ${String.format("%.4f", zone.centerLat)}, " +
+                        "${String.format("%.4f", zone.centerLng)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -283,20 +277,15 @@ private fun ZoneCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ---- Load Route button ----
             Button(
                 onClick  = onLoadRoute,
                 modifier = Modifier.fillMaxWidth(),
-                enabled  = !isLoadingRoute,
+                enabled  = !isLoading,
                 colors   = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Icon(
-                    imageVector = Icons.Default.Route,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
+                Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Load Route")
             }

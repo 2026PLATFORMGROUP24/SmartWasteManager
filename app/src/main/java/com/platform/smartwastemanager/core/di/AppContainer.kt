@@ -16,8 +16,8 @@ import com.platform.smartwastemanager.features.report.domain.WasteImageClassifie
  *
  * Context is required for ViewToggleRepository (DataStore) and WasteImageClassifier.
  *
- * NOTE: mapRepository is reused by both MapViewModel and RouteViewModel —
- * there is only one instance, keeping Firestore listeners efficient.
+ * NOTE: mapRepository and scheduleRepository are both passed to RouteViewModel —
+ * RouteViewModel now needs scheduleRepository to update zoneIds on schedule docs.
  */
 class AppContainer(context: Context) {
 
@@ -34,7 +34,7 @@ class AppContainer(context: Context) {
     val reportRepository     = ReportRepository()
     val wasteImageClassifier = WasteImageClassifier(context)
 
-    // ---- Map  + Routes (shared repository — one Firestore connection) ----
+    // ---- Map + Routes (shared MapRepository — one Firestore connection) ----
     val mapRepository = MapRepository()
 
     // ---- Guides ----

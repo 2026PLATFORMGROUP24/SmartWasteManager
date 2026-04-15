@@ -9,26 +9,15 @@ import retrofit2.http.Query
  *
  * Base URL: https://router.project-osrm.org/
  * No API key required — completely free and open.
- *
- * We use the /trip service which solves the Travelling Salesman Problem,
- * returning the most efficient order to visit all stops.
  */
 interface OsrmApiService {
 
     /**
      * Requests an optimised round trip through all provided coordinates.
+     * Used to sort collection stops into the most efficient visit order.
      *
-     * @param coordinates A semicolon-separated string of "longitude,latitude" pairs.
-     *                    Example: "28.0473,-26.2041;28.05,-26.21;28.06,-26.22"
+     * @param coordinates Semicolon-separated "longitude,latitude" pairs.
      *                    NOTE: OSRM uses longitude FIRST, then latitude.
-     *
-     * @param roundtrip   false = open trip (start ≠ end). We use false for collection routes.
-     * @param source      "first" = start at the first coordinate.
-     * @param destination "last"  = end at the last coordinate.
-     * @param geometries  "geojson" = return route geometry as GeoJSON coordinates.
-     * @param overview    "full"    = return the complete route geometry.
-     *
-     * @return [OsrmTripResponse] containing optimised waypoint order + geometry.
      */
     @GET("trip/v1/driving/{coordinates}")
     suspend fun getOptimisedTrip(
@@ -39,4 +28,20 @@ interface OsrmApiService {
         @Query("geometries")  geometries: String = "geojson",
         @Query("overview")    overview: String = "full"
     ): OsrmTripResponse
+
+    /**
+     * Requests a driving route between exactly two coordinates with step-by-step instructions.
+     * Used to get turn-by-turn directions from the driver's current location to the next stop.
+     *
+     * @param coordinates Two "longitude,latitude" pairs separated by a semicolon.
+     *                    Example: "28.0473,-26.2041;28.05,-26.21"
+     * @param steps       true = include turn-by-turn step instructions in the response.
+     */
+    @GET("route/v1/driving/{coordinates}")
+    suspend fun getRoute(
+        @Path("coordinates", encoded = true) coordinates: String,
+        @Query("steps")       steps: Boolean = true,
+        @Query("geometries")  geometries: String = "geojson",
+        @Query("overview")    overview: String = "full"
+    ): OsrmRouteResponse
 }

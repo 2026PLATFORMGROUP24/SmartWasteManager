@@ -12,6 +12,7 @@ import kotlinx.coroutines.tasks.await
 
 /**
  * Handles all Firestore CRUD operations for the schedules collection.
+ * Now also reads/writes the zoneIds field on each schedule document.
  */
 class ScheduleRepository {
 
@@ -20,7 +21,7 @@ class ScheduleRepository {
 
     /**
      * Returns a real-time stream of all schedule entries, ordered by day of week.
-     * Never calls close(error) — errors emit an empty list instead (see Lessons Learned).
+     * Never calls close(error) — errors emit an empty list instead (Rule 4).
      */
     fun getSchedules(): Flow<List<CollectionDay>> = callbackFlow<List<CollectionDay>> {
         val listenerRegistration = schedulesCollection
@@ -36,11 +37,13 @@ class ScheduleRepository {
                             CollectionDay(
                                 id = doc.id,
                                 dayOfWeek = doc.getString("dayOfWeek") ?: "",
-                                // Read as a List<String>; fall back gracefully if field is missing
                                 wasteCategories = (doc.get("wasteCategories") as? List<*>)
                                     ?.filterIsInstance<String>() ?: emptyList(),
                                 collectionTimeRange = doc.getString("collectionTimeRange"),
                                 linkedGuideId = doc.getString("linkedGuideId"),
+                                // Read assigned zone IDs — default to empty list if field missing
+                                zoneIds = (doc.get("zoneIds") as? List<*>)
+                                    ?.filterIsInstance<String>() ?: emptyList(),
                                 createdBy = doc.getString("createdBy") ?: "",
                                 updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now()
                             )
@@ -58,7 +61,7 @@ class ScheduleRepository {
         emit(emptyList())
     }
 
-    /** Creates a new schedule entry. */
+    /** Creates a new schedule entry including the zoneIds list. */
     suspend fun createSchedule(collectionDay: CollectionDay): Result<Unit> {
         return try {
             val docRef = schedulesCollection.document()
@@ -69,6 +72,7 @@ class ScheduleRepository {
                     "wasteCategories" to collectionDay.wasteCategories,
                     "collectionTimeRange" to collectionDay.collectionTimeRange,
                     "linkedGuideId" to collectionDay.linkedGuideId,
+                    "zoneIds" to collectionDay.zoneIds,
                     "createdBy" to collectionDay.createdBy,
                     "updatedAt" to Timestamp.now()
                 )
@@ -79,7 +83,7 @@ class ScheduleRepository {
         }
     }
 
-    /** Updates an existing schedule entry. */
+    /** Updates an existing schedule entry including the zoneIds list. */
     suspend fun updateSchedule(collectionDay: CollectionDay): Result<Unit> {
         return try {
             schedulesCollection.document(collectionDay.id)
@@ -89,6 +93,26 @@ class ScheduleRepository {
                         "wasteCategories" to collectionDay.wasteCategories,
                         "collectionTimeRange" to collectionDay.collectionTimeRange,
                         "linkedGuideId" to collectionDay.linkedGuideId,
+                        "zoneIds" to collectionDay.zoneIds,
+                        "updatedAt" to Timestamp.now()
+                    )
+                ).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Updates ONLY the zoneIds field on a schedule document.
+     * Used when a driver assigns/unassigns zones without touching other fields.
+     */
+    suspend fun updateScheduleZoneIds(scheduleId: String, zoneIds: List<String>): Result<Unit> {
+        return try {
+            schedulesCollection.document(scheduleId)
+                .update(
+                    mapOf(
+                        "zoneIds" to zoneIds,
                         "updatedAt" to Timestamp.now()
                     )
                 ).await()
