@@ -15,6 +15,7 @@ import com.platform.smartwastemanager.features.auth.presentation.LoginScreen
 import com.platform.smartwastemanager.features.auth.presentation.ResetPasswordScreen
 import com.platform.smartwastemanager.features.auth.presentation.SignUpScreen
 import com.platform.smartwastemanager.features.guide.presentation.GuideListScreen
+import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.home.presentation.HomeScreen
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.home.presentation.ScheduleManagementScreen
@@ -45,6 +46,7 @@ fun AppNavHost(
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
+    // Collect schedules here so we can look up a CollectionDay by ID when entering ZoneListScreen
     val schedules          by homeViewModel.schedules.collectAsStateWithLifecycle()
 
     val isDriver             = currentUser?.role == UserRole.DRIVER
@@ -114,8 +116,8 @@ fun AppNavHost(
         // ==================== ZONES ====================
 
         // ZoneListScreen — shows zones assigned to a specific schedule day.
-        // We look up the full CollectionDay object from the schedules list so we
-        // can pass it to ZoneListScreen (it needs the zoneIds list, not just the ID).
+        // We look up the full CollectionDay from the already-loaded schedules list
+        // so we can pass zoneIds into the screen. If not found yet, fall back to a stub.
         composable(
             route     = Routes.ZONE_LIST,
             arguments = listOf(
@@ -123,16 +125,13 @@ fun AppNavHost(
                 navArgument("scheduleDayName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId") ?: ""
+            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
             val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
 
-            // Find the matching CollectionDay from the already-loaded schedules list.
-            // If not found yet (e.g. list still loading), fall back to a stub with just the id.
+            // Find the matching CollectionDay. Fall back to a stub if schedules haven't
+            // loaded yet — ZoneListScreen will call loadZonesForSchedule() and handle it.
             val schedule = schedules.find { it.id == scheduleDayId }
-                ?: com.platform.smartwastemanager.features.home.domain.CollectionDay(
-                    id         = scheduleDayId,
-                    dayOfWeek  = scheduleDayName
-                )
+                ?: CollectionDay(id = scheduleDayId, dayOfWeek = scheduleDayName)
 
             ZoneListScreen(
                 viewModel      = routeViewModel,
@@ -159,12 +158,12 @@ fun AppNavHost(
                 navArgument("scheduleDayName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId") ?: ""
+            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
             val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
 
-            // Pass the current zoneIds so the picker can mark already-assigned zones
-            val schedule = schedules.find { it.id == scheduleDayId }
-            val alreadyAssignedIds = schedule?.zoneIds ?: emptyList()
+            // Pass current zoneIds so the picker can mark already-assigned zones
+            val alreadyAssignedIds = schedules.find { it.id == scheduleDayId }?.zoneIds
+                ?: emptyList()
 
             ZonePickerScreen(
                 viewModel          = routeViewModel,
@@ -174,7 +173,7 @@ fun AppNavHost(
             )
         }
 
-        // ManageZonesScreen — global zone CRUD (create / delete zones).
+        // ManageZonesScreen — global zone CRUD (create / delete global zones).
         composable(Routes.MANAGE_ZONES) {
             ManageZonesScreen(
                 viewModel      = routeViewModel,
@@ -183,7 +182,7 @@ fun AppNavHost(
             )
         }
 
-        // ZoneMapPickerScreen — map UI for drawing a new global zone.
+        // ZoneMapPickerScreen — map UI for drawing a brand-new global zone.
         composable(Routes.ZONE_MAP_PICKER) {
             ZoneMapPickerScreen(
                 viewModel      = routeViewModel,

@@ -2,7 +2,11 @@ package com.platform.smartwastemanager.features.map.presentation
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -11,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Navigation
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,8 +41,9 @@ import kotlinx.coroutines.launch
  *
  * States:
  *   READY       — Map preview + stop list + "Start Route" button.
- *   IN-PROGRESS — Full-screen map with a bottom card showing the current stop,
- *                 turn-by-turn directions, an "Open in Maps" button, and the Collect button.
+ *   IN-PROGRESS — Full-screen map with a collapsible/expandable bottom card showing
+ *                 the current stop, directions, Open in Maps button, and Collect button.
+ *                 The card can be toggled by tapping the drag handle / header area.
  *   COMPLETED   — Celebration card.
  *   CALCULATING — Spinner.
  *   ERROR       — Error card + Go Back.
@@ -70,7 +74,7 @@ fun ActiveRouteScreen(
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
 
-    // Show collect/dismiss errors as snackbars without stopping the route
+    // Show collect errors as snackbars without stopping the route
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
             snackbarHostState.showSnackbar((actionState as RouteActionState.Error).message)
@@ -78,7 +82,7 @@ fun ActiveRouteScreen(
         }
     }
 
-    // Pan the camera when route state changes
+    // Pan the camera to the current / first stop whenever route state changes
     LaunchedEffect(routeState) {
         when (val state = routeState) {
             is ActiveRouteUiState.Ready -> {
@@ -126,7 +130,7 @@ fun ActiveRouteScreen(
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint               = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 Column {
@@ -155,11 +159,15 @@ fun ActiveRouteScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text("Calculating optimised route…",
-                                style = MaterialTheme.typography.bodyMedium)
-                            Text("Using free OSRM routing service",
+                            Text(
+                                "Calculating optimised route…",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "Using free OSRM routing service",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -193,13 +201,11 @@ fun ActiveRouteScreen(
                         ) {
                             Button(
                                 onClick  = {
-                                    // Get driver location then start the route
                                     scope.launch {
-                                        val gp = if (locationPermissions.allPermissionsGranted)
+                                        val gp  = if (locationPermissions.allPermissionsGranted)
                                             LocationHelper.getCurrentLocation(context)
                                         else null
-
-                                        val lat = gp?.latitude ?: state.stops[0].location.latitude
+                                        val lat = gp?.latitude  ?: state.stops[0].location.latitude
                                         val lng = gp?.longitude ?: state.stops[0].location.longitude
                                         viewModel.startRoute(lat, lng)
                                     }
@@ -215,7 +221,7 @@ fun ActiveRouteScreen(
                                 Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Start Route  •  ${state.stops.size} stop${if (state.stops.size != 1) "s" else ""}",
+                                    text       = "Start Route  •  ${state.stops.size} stop${if (state.stops.size != 1) "s" else ""}",
                                     style      = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -225,16 +231,20 @@ fun ActiveRouteScreen(
                 }
 
                 // ----------------------------------------------------------------
-                // IN PROGRESS — map fills screen, stop card overlaid at bottom
+                // IN PROGRESS — map fills screen, collapsible bottom card
                 // ----------------------------------------------------------------
                 is ActiveRouteUiState.InProgress -> {
                     val currentStop = state.stops[state.currentStopIndex]
                     val stopLat     = currentStop.location.latitude
                     val stopLng     = currentStop.location.longitude
 
+                    // Controls whether the full card body is visible.
+                    // Starts expanded. Driver can collapse to see more of the map.
+                    var cardExpanded by remember { mutableStateOf(true) }
+
                     Box(modifier = Modifier.fillMaxSize()) {
 
-                        // Map fills the full remaining space
+                        // Map fills the full space behind the card
                         RouteMapWithStops(
                             stops               = state.stops,
                             currentStopIndex    = state.currentStopIndex,
@@ -242,9 +252,9 @@ fun ActiveRouteScreen(
                             modifier            = Modifier.fillMaxSize()
                         )
 
-                        // ---- Bottom floating card ----
+                        // ---- Collapsible bottom card ----
                         Card(
-                            modifier = Modifier
+                            modifier  = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter),
                             shape     = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
@@ -253,220 +263,274 @@ fun ActiveRouteScreen(
                                 containerColor = MaterialTheme.colorScheme.surface
                             )
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(horizontal = 20.dp, vertical = 16.dp)
-                            ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
 
-                                // Progress row
-                                Row(
-                                    modifier              = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment     = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text  = "Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text  = "${state.stops.size - state.currentStopIndex - 1} remaining",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                LinearProgressIndicator(
-                                    progress = {
-                                        state.currentStopIndex.toFloat() / state.stops.size.toFloat()
-                                    },
-                                    modifier   = Modifier
+                                // ---- Drag handle / collapse-expand header ----
+                                // Tapping anywhere in this row toggles the card body.
+                                Column(
+                                    modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp)
-                                        .height(6.dp),
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-
-                                // Stop detail card
-                                Card(
-                                    colors   = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
+                                        .clickable { cardExpanded = !cardExpanded }
+                                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
+                                    // Visual drag handle pill
+                                    Box(
+                                        modifier = Modifier
+                                            .width(40.dp)
+                                            .height(4.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    .copy(alpha = 0.4f),
+                                                shape = RoundedCornerShape(2.dp)
+                                            )
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Always-visible summary row: stop counter + progress + chevron
                                     Row(
-                                        modifier          = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        modifier              = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment     = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector        = Icons.Default.LocationOn,
-                                            contentDescription = null,
-                                            tint               = MaterialTheme.colorScheme.primary,
-                                            modifier           = Modifier.size(28.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Column {
                                             Text(
-                                                text       = currentStop.streetName,
-                                                style      = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color      = MaterialTheme.colorScheme.onPrimaryContainer
+                                                text       = "Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
+                                                style      = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color      = MaterialTheme.colorScheme.primary
                                             )
                                             Text(
-                                                text  = "🗑️ ${currentStop.category}  •  Regular Pickup",
+                                                text  = currentStop.streetName,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
+
+                                        // Chevron icon indicating expand/collapse state
+                                        Icon(
+                                            imageVector        = if (cardExpanded)
+                                                Icons.Default.KeyboardArrowDown
+                                            else
+                                                Icons.Default.KeyboardArrowUp,
+                                            contentDescription = if (cardExpanded)
+                                                "Collapse card"
+                                            else
+                                                "Expand card",
+                                            tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
+
+                                    // Progress bar always visible even when collapsed
+                                    LinearProgressIndicator(
+                                        progress  = {
+                                            state.currentStopIndex.toFloat() / state.stops.size.toFloat()
+                                        },
+                                        modifier   = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 8.dp)
+                                            .height(5.dp),
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // ---- Directions panel ----
-                                Card(
-                                    colors   = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
+                                // ---- Expandable body ----
+                                AnimatedVisibility(
+                                    visible = cardExpanded,
+                                    enter   = expandVertically(),
+                                    exit    = shrinkVertically()
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(
+                                                start  = 20.dp,
+                                                end    = 20.dp,
+                                                bottom = 20.dp
+                                            )
+                                    ) {
+
+                                        // Current stop detail card
+                                        Card(
+                                            colors   = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(
-                                                imageVector        = Icons.AutoMirrored.Filled.Navigation,
-                                                contentDescription = null,
-                                                tint               = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                modifier           = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text       = "Directions",
-                                                style      = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color      = MaterialTheme.colorScheme.onSecondaryContainer
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-
-                                        when {
-                                            // Directions are being fetched
-                                            state.directionsLoading -> {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    CircularProgressIndicator(
-                                                        modifier    = Modifier.size(14.dp),
-                                                        strokeWidth = 2.dp,
-                                                        color       = MaterialTheme.colorScheme.onSecondaryContainer
+                                            Row(
+                                                modifier          = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector        = Icons.Default.LocationOn,
+                                                    contentDescription = null,
+                                                    tint               = MaterialTheme.colorScheme.primary,
+                                                    modifier           = Modifier.size(28.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text       = currentStop.streetName,
+                                                        style      = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color      = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
                                                     Text(
-                                                        text  = "Getting directions…",
+                                                        text  = "🗑️ ${currentStop.category}  •  Regular Pickup",
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                    Text(
+                                                        text  = "${state.stops.size - state.currentStopIndex - 1} stop${if ((state.stops.size - state.currentStopIndex - 1) != 1) "s" else ""} remaining",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            .copy(alpha = 0.7f)
                                                     )
                                                 }
                                             }
+                                        }
 
-                                            // Directions loaded
-                                            state.directions.isNotEmpty() -> {
-                                                Column(
-                                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                                ) {
-                                                    state.directions.forEachIndexed { index, step ->
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // ---- Directions panel ----
+                                        Card(
+                                            colors   = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        // Navigation icon lives in Icons.Default (Icons.Filled),
+                                                        // NOT in Icons.AutoMirrored.Filled
+                                                        imageVector        = Icons.Default.Navigation,
+                                                        contentDescription = null,
+                                                        tint               = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        modifier           = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text       = "Directions",
+                                                        style      = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color      = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                }
+
+                                                Spacer(modifier = Modifier.height(6.dp))
+
+                                                when {
+                                                    state.directionsLoading -> {
+                                                        Row(
+                                                            verticalAlignment     = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            CircularProgressIndicator(
+                                                                modifier    = Modifier.size(14.dp),
+                                                                strokeWidth = 2.dp,
+                                                                color       = MaterialTheme.colorScheme.onSecondaryContainer
+                                                            )
+                                                            Text(
+                                                                text  = "Getting directions…",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                            )
+                                                        }
+                                                    }
+                                                    state.directions.isNotEmpty() -> {
+                                                        Column(
+                                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                                        ) {
+                                                            state.directions.forEachIndexed { index, step ->
+                                                                Text(
+                                                                    text  = "${index + 1}. $step",
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    else -> {
                                                         Text(
-                                                            text  = "${index + 1}. $step",
+                                                            text  = "No directions available.",
                                                             style = MaterialTheme.typography.bodySmall,
                                                             color = MaterialTheme.colorScheme.onSecondaryContainer
                                                         )
                                                     }
                                                 }
-                                            }
 
-                                            // No directions available
-                                            else -> {
-                                                Text(
-                                                    text  = "No directions available.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+
+                                                // "Open in Maps" — uses ButtonDefaults.outlinedButtonColors()
+                                                // OutlinedButtonDefaults does NOT exist in Material 3
+                                                OutlinedButton(
+                                                    onClick  = {
+                                                        val uri    = Uri.parse("google.navigation:q=$stopLat,$stopLng&mode=d")
+                                                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                                            setPackage("com.google.android.apps.maps")
+                                                        }
+                                                        context.startActivity(
+                                                            Intent.createChooser(intent, "Open with navigation app")
+                                                        )
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors   = ButtonDefaults.outlinedButtonColors(
+                                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        imageVector        = Icons.Default.Map,
+                                                        contentDescription = null,
+                                                        modifier           = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Open in Maps")
+                                                }
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(14.dp))
 
-                                        // "Open in Maps" button — launches Google Maps / navigation
-                                        OutlinedButton(
+                                        // ---- COLLECT button ----
+                                        Button(
                                             onClick  = {
-                                                val uri = Uri.parse(
-                                                    "google.navigation:q=$stopLat,$stopLng&mode=d"
-                                                )
-                                                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                                                    setPackage("com.google.android.apps.maps")
+                                                scope.launch {
+                                                    val gp  = if (locationPermissions.allPermissionsGranted)
+                                                        LocationHelper.getCurrentLocation(context)
+                                                    else null
+                                                    val lat = gp?.latitude  ?: stopLat
+                                                    val lng = gp?.longitude ?: stopLng
+                                                    viewModel.collectCurrentStop(lat, lng)
                                                 }
-                                                // Fall back to any navigation app if Google Maps isn't installed
-                                                val chooser = Intent.createChooser(
-                                                    intent, "Open with navigation app"
-                                                )
-                                                context.startActivity(chooser)
                                             },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors   = OutlinedButtonDefaults.outlinedButtonColors(
-                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                            )
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(56.dp),
+                                            colors   = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary
+                                            ),
+                                            shape    = MaterialTheme.shapes.medium
                                         ) {
                                             Icon(
-                                                imageVector        = Icons.Default.Map,
+                                                imageVector        = Icons.Default.CheckCircle,
                                                 contentDescription = null,
-                                                modifier           = Modifier.size(16.dp)
+                                                modifier           = Modifier.size(22.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Open in Maps")
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                text       = "Collect",
+                                                style      = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
-                                }
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                // ---- COLLECT button ----
-                                Button(
-                                    onClick  = {
-                                        scope.launch {
-                                            val gp = if (locationPermissions.allPermissionsGranted)
-                                                LocationHelper.getCurrentLocation(context)
-                                            else null
-                                            val lat = gp?.latitude ?: stopLat
-                                            val lng = gp?.longitude ?: stopLng
-                                            viewModel.collectCurrentStop(lat, lng)
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    colors   = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary
-                                    ),
-                                    shape = MaterialTheme.shapes.medium
-                                ) {
-                                    Icon(
-                                        imageVector        = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        modifier           = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text       = "Collect",
-                                        style      = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
                                 }
                             }
                         }
@@ -563,8 +627,11 @@ fun ActiveRouteScreen(
 // =============================================================================
 
 /**
- * Google Map showing all stops as coloured markers and a polyline connecting them.
- * 🟢 Green  = collected  |  🔵 Azure = current stop  |  🔴 Red = upcoming
+ * Google Map showing all stops as coloured markers and a straight polyline connecting them.
+ * 🟢 Green = collected | 🔵 Azure = current stop | 🔴 Red = upcoming
+ *
+ * Note: the polyline draws straight lines between stops. To draw the actual road-following
+ * route, decode the OSRM geometry coordinates from OsrmTripResponse and use those as points.
  */
 @Composable
 private fun RouteMapWithStops(
@@ -640,10 +707,10 @@ private fun StopListPanel(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            text  = "${index + 1}",
-                            style = MaterialTheme.typography.labelSmall,
+                            text       = "${index + 1}",
+                            style      = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = when {
+                            color      = when {
                                 isCollected -> MaterialTheme.colorScheme.onTertiary
                                 isCurrent   -> MaterialTheme.colorScheme.onPrimary
                                 else        -> MaterialTheme.colorScheme.onSurfaceVariant
