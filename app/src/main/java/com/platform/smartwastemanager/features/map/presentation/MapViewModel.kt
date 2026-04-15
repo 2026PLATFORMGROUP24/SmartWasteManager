@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.platform.smartwastemanager.features.map.data.MapRepository
 import com.platform.smartwastemanager.features.map.domain.MapPin
+import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,40 +22,39 @@ sealed class MapUiState {
 /**
  * ViewModel for the Map screen.
  *
- * Manages:
- * - Loading the live list of pending map pins from Firestore
- * - Driver dismiss mode toggle
- * - Dismissing a single report (driver only)
+ * NEW: Also loads all zones belonging to the signed-in driver so they are
+ * displayed as circle overlays on the map when the driver is in driver view.
  */
 class MapViewModel(
     private val mapRepository: MapRepository
 ) : ViewModel() {
 
-    // ---- UI state ----
+    // ---- Map pins (waste reports) ----
     private val _uiState = MutableStateFlow<MapUiState>(MapUiState.Loading)
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
+    // ---- Driver zones ----
+    // Real-time list of all zones created by the currently signed-in driver.
+    // Empty list when no driver is signed in or the driver has no zones.
+    private val _driverZones = MutableStateFlow<List<Zone>>(emptyList())
+    val driverZones: StateFlow<List<Zone>> = _driverZones.asStateFlow()
+
     // ---- Dismiss mode (driver only) ----
-    // When true, tapping a map pin will prompt the driver to dismiss it
     private val _isDismissMode = MutableStateFlow(false)
     val isDismissMode: StateFlow<Boolean> = _isDismissMode.asStateFlow()
 
-    // ---- Dismiss confirmation dialog state ----
-    // Holds the MapPin that was tapped while in dismiss mode
+    // ---- Dismiss confirmation ----
     private val _pinToConfirmDismiss = MutableStateFlow<MapPin?>(null)
     val pinToConfirmDismiss: StateFlow<MapPin?> = _pinToConfirmDismiss.asStateFlow()
 
-    // Job reference so we can cancel the previous listener on reload
-    private var pinsJob: Job? = null
+    private var pinsJob:  Job? = null
+    private var zonesJob: Job? = null
 
     init {
         loadPins()
     }
 
-    /**
-     * Starts a Firestore real-time listener for pending map pins.
-     * Cancels any existing listener first (avoids duplicates).
-     */
+    /** Starts/restarts the real-time listener for pending waste report pins. */
     fun loadPins() {
         pinsJob?.cancel()
         pinsJob = viewModelScope.launch {
@@ -65,47 +65,51 @@ class MapViewModel(
         }
     }
 
-    /** Toggles the driver's dismiss mode on/off. */
-    fun toggleDismissMode() {
-        _isDismissMode.value = !_isDismissMode.value
-        // Clear any pending confirmation when toggling off
-        if (!_isDismissMode.value) _pinToConfirmDismiss.value = null
-    }
-
     /**
-     * Called when a driver taps a map pin while in dismiss mode.
-     * Sets the pin on [pinToConfirmDismiss] so the UI can show a confirmation dialog.
+     * Loads all zones created by [driverUid] as a real-time stream.
+     * Called from MapScreen when the driver enters driver view.
+     * Safe to call multiple times — cancels the previous listener first.
+     *
+     * @param driverUid The UID of the signed-in driver. Pass empty string to clear zones.
      */
-    fun onPinTappedForDismiss(pin: MapPin) {
-        _pinToConfirmDismiss.value = pin
-    }
-
-    /** Called when the driver cancels the dismiss confirmation dialog. */
-    fun cancelDismiss() {
-        _pinToConfirmDismiss.value = null
-    }
-
-    /**
-     * Confirms the dismiss — updates Firestore status to "dismissed".
-     * The Firestore listener automatically removes the pin from the map.
-     */
-    fun confirmDismiss() {
-        val pin = _pinToConfirmDismiss.value ?: return
-        _pinToConfirmDismiss.value = null
-        viewModelScope.launch {
-            mapRepository.dismissReport(pin.reportId)
-            // No need to manually update state — the snapshot listener handles it
+    fun loadDriverZones(driverUid: String) {
+        zonesJob?.cancel()
+        if (driverUid.isBlank()) {
+            _driverZones.value = emptyList()
+            return
+        }
+        zonesJob = viewModelScope.launch {
+            mapRepository.getZonesForDriver(driverUid)
+                .collect { zones -> _driverZones.value = zones }
         }
     }
 
-    // ---- Manual DI factory ----
+    /** Clears the zone list (e.g. when driver switches to user view). */
+    fun clearDriverZones() {
+        zonesJob?.cancel()
+        _driverZones.value = emptyList()
+    }
+
+    fun toggleDismissMode() {
+        _isDismissMode.value = !_isDismissMode.value
+        if (!_isDismissMode.value) _pinToConfirmDismiss.value = null
+    }
+
+    fun onPinTappedForDismiss(pin: MapPin) { _pinToConfirmDismiss.value = pin }
+    fun cancelDismiss()  { _pinToConfirmDismiss.value = null }
+
+    fun confirmDismiss() {
+        val pin = _pinToConfirmDismiss.value ?: return
+        _pinToConfirmDismiss.value = null
+        viewModelScope.launch { mapRepository.dismissReport(pin.reportId) }
+    }
+
     companion object {
         fun factory(mapRepository: MapRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MapViewModel(mapRepository) as T
-                }
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    MapViewModel(mapRepository) as T
             }
     }
 }

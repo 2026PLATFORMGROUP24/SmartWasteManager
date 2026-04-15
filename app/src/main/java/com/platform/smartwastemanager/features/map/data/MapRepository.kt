@@ -18,50 +18,29 @@ import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 import kotlin.math.*
 
-/**
- * MapRepository handles all data operations for:
- *   1. Loading pending map pins (waste reports) — existing behaviour.
- *   2. Dismissing a report — existing behaviour.
- *   3. Zone CRUD — driver routes feature.
- *   4. Calculating an optimised collection route using OSRM.
- *   5. Collecting (dismissing) a report during an active route.
- */
 class MapRepository {
 
     private val firestore = Firebase.firestore
 
-    // ---- OSRM Retrofit client (free, no API key) ----
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val osrmService: OsrmApiService by lazy {
         Retrofit.Builder()
             .baseUrl("https://router.project-osrm.org/")
-            .addConverterFactory(
-                json.asConverterFactory("application/json".toMediaType())
-            )
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(OsrmApiService::class.java)
     }
 
     // =====================================================================
-    // EXISTING: Map Pins (pending waste reports)
+    // Map Pins
     // =====================================================================
 
-    /**
-     * Returns a real-time Flow of all pending waste reports as [MapPin] objects.
-     * Rule 4: never close(error) — use trySend(emptyList()) on failure.
-     */
     fun getPendingMapPins(): Flow<List<MapPin>> = callbackFlow {
         val listener = firestore.collection("waste_reports")
             .whereEqualTo("status", "pending")
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
                 val pins = snapshot?.documents?.mapNotNull { doc ->
                     try {
                         MapPin(
@@ -80,43 +59,56 @@ class MapRepository {
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 
-    /** Updates a waste report's status to "dismissed". */
     suspend fun dismissReport(reportId: String) {
-        firestore.collection("waste_reports")
-            .document(reportId)
-            .update("status", "dismissed")
-            .await()
+        firestore.collection("waste_reports").document(reportId)
+            .update("status", "dismissed").await()
     }
 
     // =====================================================================
-    // Zone CRUD
+    // Zone CRUD (used by RouteViewModel)
     // =====================================================================
 
     fun getZonesForDay(scheduleDayId: String): Flow<List<Zone>> = callbackFlow {
         val listener = firestore.collection("route_zones")
             .whereEqualTo("scheduleDayId", scheduleDayId)
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-                val zones = snapshot?.documents?.mapNotNull { doc ->
-                    try {
-                        Zone(
-                            id            = doc.id,
-                            name          = doc.getString("name") ?: "",
-                            scheduleDayId = doc.getString("scheduleDayId") ?: "",
-                            centerLat     = doc.getDouble("centerLat") ?: 0.0,
-                            centerLng     = doc.getDouble("centerLng") ?: 0.0,
-                            radiusMeters  = doc.getDouble("radiusMeters") ?: 1000.0,
-                            createdBy     = doc.getString("createdBy") ?: ""
-                        )
-                    } catch (e: Exception) { null }
-                } ?: emptyList()
-                trySend(zones)
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
+                trySend(parseZones(snapshot))
             }
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
+
+    /**
+     * Returns a real-time stream of ALL zones created by [driverUid].
+     * Used by MapViewModel to show zone overlays on the main map screen.
+     */
+    fun getZonesForDriver(driverUid: String): Flow<List<Zone>> = callbackFlow {
+        val listener = firestore.collection("route_zones")
+            .whereEqualTo("createdBy", driverUid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
+                trySend(parseZones(snapshot))
+            }
+        awaitClose { listener.remove() }
+    }.catch { emit(emptyList()) }
+
+    /** Shared Firestore → Zone mapping logic. */
+    private fun parseZones(
+        snapshot: com.google.firebase.firestore.QuerySnapshot?
+    ): List<Zone> =
+        snapshot?.documents?.mapNotNull { doc ->
+            try {
+                Zone(
+                    id            = doc.id,
+                    name          = doc.getString("name") ?: "",
+                    scheduleDayId = doc.getString("scheduleDayId") ?: "",
+                    centerLat     = doc.getDouble("centerLat") ?: 0.0,
+                    centerLng     = doc.getDouble("centerLng") ?: 0.0,
+                    radiusMeters  = doc.getDouble("radiusMeters") ?: 1000.0,
+                    createdBy     = doc.getString("createdBy") ?: ""
+                )
+            } catch (e: Exception) { null }
+        } ?: emptyList()
 
     suspend fun addZone(zone: Zone): String {
         val data = mapOf(
@@ -127,8 +119,7 @@ class MapRepository {
             "radiusMeters"  to zone.radiusMeters,
             "createdBy"     to zone.createdBy
         )
-        val ref = firestore.collection("route_zones").add(data).await()
-        return ref.id
+        return firestore.collection("route_zones").add(data).await().id
     }
 
     suspend fun deleteZone(zoneId: String) {
@@ -139,36 +130,19 @@ class MapRepository {
     // Route Calculation
     // =====================================================================
 
-    /**
-     * Fetches ALL pending "Regular Pickup" waste reports in real-time from the
-     * Firestore SERVER (bypassing local cache) and filters them to only those
-     * inside the given circular zone.
-     *
-     * KEY FIX: Source.SERVER forces Firestore to go to the network, ensuring
-     * waste reports submitted after the app launched (or after a previous route
-     * was calculated) are always included. Without this, Firestore's offline
-     * persistence cache can serve stale data that misses new reports.
-     *
-     * @return Optimally ordered list of [RouteStop] objects via OSRM trip API.
-     *         Falls back to unordered list if OSRM is unreachable.
-     */
     suspend fun calculateRouteForZone(zone: Zone): List<RouteStop> {
-        // ---- STEP 1: Force a fresh server read — never use cached data for routes ----
-        // Source.SERVER skips the local offline cache entirely.
-        // This is the fix for new reports not appearing in loaded routes.
         val snapshot = firestore.collection("waste_reports")
             .whereEqualTo("status", "pending")
             .whereEqualTo("reportType", "Regular Pickup")
-            .get(Source.SERVER)   // <-- THE FIX: always fetch from server, not cache
+            .get(Source.SERVER)
             .await()
 
-        // ---- STEP 2: Map Firestore documents to RouteStop objects ----
-        val allRegularPickups = snapshot.documents.mapNotNull { doc ->
+        val allPickups = snapshot.documents.mapNotNull { doc ->
             try {
-                val geoPoint = doc.getGeoPoint("location") ?: return@mapNotNull null
+                val gp = doc.getGeoPoint("location") ?: return@mapNotNull null
                 RouteStop(
                     reportId    = doc.id,
-                    location    = geoPoint,
+                    location    = gp,
                     streetName  = doc.getString("streetName") ?: "Unknown Street",
                     category    = doc.getString("category") ?: "Unknown",
                     isCollected = false
@@ -176,73 +150,41 @@ class MapRepository {
             } catch (e: Exception) { null }
         }
 
-        // ---- STEP 3: Filter to stops inside the zone using Haversine distance ----
-        val stopsInZone = allRegularPickups.filter { stop ->
+        val stopsInZone = allPickups.filter { stop ->
             haversineDistanceMeters(
-                lat1 = zone.centerLat,
-                lng1 = zone.centerLng,
-                lat2 = stop.location.latitude,
-                lng2 = stop.location.longitude
+                zone.centerLat, zone.centerLng,
+                stop.location.latitude, stop.location.longitude
             ) <= zone.radiusMeters
         }
 
-        // If there's only 1 stop (or none), OSRM trip routing isn't needed
         if (stopsInZone.size < 2) return stopsInZone
 
-        // ---- STEP 4: Build OSRM coordinate string (longitude FIRST, then latitude) ----
-        val coordinatesString = stopsInZone.joinToString(";") { stop ->
-            "${stop.location.longitude},${stop.location.latitude}"
+        val coords = stopsInZone.joinToString(";") {
+            "${it.location.longitude},${it.location.latitude}"
         }
 
-        // ---- STEP 5: Ask OSRM for the optimal visit order ----
         return try {
-            val osrmResponse = osrmService.getOptimisedTrip(coordinatesString)
-            if (osrmResponse.code == "Ok" && osrmResponse.waypoints.size == stopsInZone.size) {
-                // waypoints[i].waypointIndex = the position this stop should be visited
-                // Sort by waypointIndex to get the optimal visit sequence
-                val indexed = osrmResponse.waypoints.mapIndexed { inputIndex, waypoint ->
-                    waypoint.waypointIndex to stopsInZone[inputIndex]
-                }
-                indexed.sortedBy { (visitOrder, _) -> visitOrder }.map { (_, stop) -> stop }
-            } else {
-                stopsInZone // OSRM returned unexpected data — use original order
-            }
-        } catch (e: Exception) {
-            // Network issue contacting OSRM — fall back to unoptimised order
-            // The route still works, just not optimally ordered
-            stopsInZone
-        }
+            val resp = osrmService.getOptimisedTrip(coords)
+            if (resp.code == "Ok" && resp.waypoints.size == stopsInZone.size) {
+                stopsInZone.mapIndexed { i, stop -> resp.waypoints[i].waypointIndex to stop }
+                    .sortedBy { it.first }.map { it.second }
+            } else stopsInZone
+        } catch (e: Exception) { stopsInZone }
     }
 
-    /**
-     * Marks a waste report as "dismissed" during an active route.
-     * Identical to dismissReport — removes the pin from the live map.
-     */
     suspend fun collectStop(reportId: String) {
-        firestore.collection("waste_reports")
-            .document(reportId)
-            .update("status", "dismissed")
-            .await()
+        firestore.collection("waste_reports").document(reportId)
+            .update("status", "dismissed").await()
     }
 
-    // =====================================================================
-    // UTILITY: Haversine distance formula
-    // =====================================================================
-
-    /**
-     * Calculates the straight-line distance between two GPS points in metres,
-     * accounting for Earth's curvature. Used for zone-containment checks.
-     */
     private fun haversineDistanceMeters(
-        lat1: Double, lng1: Double,
-        lat2: Double, lng2: Double
+        lat1: Double, lng1: Double, lat2: Double, lng2: Double
     ): Double {
-        val earthRadiusMeters = 6_371_000.0
+        val r    = 6_371_000.0
         val dLat = Math.toRadians(lat2 - lat1)
         val dLng = Math.toRadians(lng2 - lng1)
-        val a = sin(dLat / 2).pow(2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLng / 2).pow(2)
-        return earthRadiusMeters * 2 * atan2(sqrt(a), sqrt(1 - a))
+        val a    = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2).pow(2)
+        return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 }

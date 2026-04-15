@@ -204,7 +204,8 @@ fun AppNavHost(
         composable(Routes.MAP) {
             MapScreen(
                 viewModel            = mapViewModel,
-                isDriverInDriverView = isDriverInDriverView
+                isDriverInDriverView = isDriverInDriverView,
+                driverUid            = currentUser?.uid ?: ""   // NEW — enables zone overlays
             )
         }
 
