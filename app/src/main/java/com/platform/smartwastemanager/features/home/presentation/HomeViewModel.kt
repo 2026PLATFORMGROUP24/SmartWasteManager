@@ -23,23 +23,18 @@ class HomeViewModel(
     private val mapRepository: MapRepository
 ) : ViewModel() {
 
-    // User's collection points
     private val _collectionPoints = MutableStateFlow<List<CollectionPoint>>(emptyList())
     val collectionPoints: StateFlow<List<CollectionPoint>> = _collectionPoints.asStateFlow()
 
-    // Currently selected collection point
     private val _selectedPoint = MutableStateFlow<CollectionPoint?>(null)
     val selectedPoint: StateFlow<CollectionPoint?> = _selectedPoint.asStateFlow()
 
-    // Schedules for the selected zone (user) or all zones (driver)
     private val _schedules = MutableStateFlow<List<CollectionDay>>(emptyList())
     val schedules: StateFlow<List<CollectionDay>> = _schedules.asStateFlow()
 
-    // All zones (for driver view)
     private val _zones = MutableStateFlow<List<Zone>>(emptyList())
     val zones: StateFlow<List<Zone>> = _zones.asStateFlow()
 
-    // Currently selected zone (driver view)
     private val _selectedZone = MutableStateFlow<Zone?>(null)
     val selectedZone: StateFlow<Zone?> = _selectedZone.asStateFlow()
 
@@ -83,7 +78,7 @@ class HomeViewModel(
             } catch (_: Exception) {
                 if (_collectionPoints.value.isEmpty()) {
                     _uiState.value = HomeUiState.Error(
-                        "Could not load collection points. Check your connection."
+                        "Could not load collection points."
                     )
                 }
             }
@@ -93,11 +88,12 @@ class HomeViewModel(
     fun selectCollectionPoint(point: CollectionPoint) {
         _selectedPoint.value = point
 
-        // Load schedules for this point's zone
+        // IMMEDIATELY clear old schedules and load new ones
+        _schedules.value = emptyList()
+
         if (point.zoneId.isNotBlank()) {
             loadSchedulesForZone(point.zoneId)
         } else {
-            _schedules.value = emptyList()
             _uiState.value = HomeUiState.Error(
                 "This collection point is not assigned to a zone yet."
             )
@@ -149,6 +145,9 @@ class HomeViewModel(
 
     fun selectZone(zone: Zone) {
         _selectedZone.value = zone
+
+        // IMMEDIATELY clear old schedules and load new ones
+        _schedules.value = emptyList()
         loadSchedulesForZone(zone.id)
     }
 
@@ -157,27 +156,31 @@ class HomeViewModel(
     // =========================================================================
 
     private fun loadSchedulesForZone(zoneId: String) {
+        // Cancel any existing schedule loading job
         schedulesJob?.cancel()
+
         schedulesJob = viewModelScope.launch {
             try {
                 scheduleRepository.getSchedulesForZone(zoneId)
                     .collect { list ->
                         _schedules.value = list
-                        if (list.isNotEmpty() && _uiState.value is HomeUiState.Error) {
+
+                        // Clear error state when schedules load successfully
+                        if (_uiState.value is HomeUiState.Error) {
                             _uiState.value = HomeUiState.Idle
                         }
                     }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // Only show error if we have no schedules to show
                 if (_schedules.value.isEmpty()) {
                     _uiState.value = HomeUiState.Error(
-                        "Could not load schedules. Check your connection."
+                        "Could not load schedules for this zone."
                     )
                 }
             }
         }
     }
 
-    // REPLACE the createSchedule function with:
     fun createSchedule(
         dayOfWeek: String,
         wasteCategories: List<String>,
@@ -221,19 +224,6 @@ class HomeViewModel(
         }
     }
 
-    fun deleteSchedule(scheduleId: String) {
-        viewModelScope.launch {
-            _uiState.value = HomeUiState.Loading
-            val result = scheduleRepository.deleteSchedule(scheduleId)
-            _uiState.value = if (result.isSuccess)
-                HomeUiState.Success("Schedule deleted")
-            else
-                HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to delete schedule")
-        }
-    }
-    // ADD this method to HomeViewModel (it's missing):
-// ADD this method after createSchedule() (around line 223):
-
     fun updateSchedule(collectionDay: CollectionDay) {
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
@@ -247,6 +237,17 @@ class HomeViewModel(
                 HomeUiState.Success("Schedule updated successfully")
             else
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to update schedule")
+        }
+    }
+
+    fun deleteSchedule(scheduleId: String) {
+        viewModelScope.launch {
+            _uiState.value = HomeUiState.Loading
+            val result = scheduleRepository.deleteSchedule(scheduleId)
+            _uiState.value = if (result.isSuccess)
+                HomeUiState.Success("Schedule deleted")
+            else
+                HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to delete schedule")
         }
     }
 

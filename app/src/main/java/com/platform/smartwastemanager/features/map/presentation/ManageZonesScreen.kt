@@ -34,8 +34,9 @@ fun ManageZonesScreen(
     onNavigateBack: () -> Unit,
     onCreateZone: () -> Unit
 ) {
+    // Load ALL zones, not just the driver's zones
     LaunchedEffect(Unit) {
-        viewModel.loadAllZones()
+        viewModel.loadAllZones()  // This shows all zones in the system
     }
 
     val allZonesState by viewModel.allZonesState.collectAsStateWithLifecycle()

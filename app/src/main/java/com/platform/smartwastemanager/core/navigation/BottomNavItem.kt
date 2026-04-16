@@ -19,7 +19,7 @@ data class BottomNavItem(
     companion object {
         val all = listOf(
             BottomNavItem(Routes.HOME,          "Home",          Icons.Default.Home),
-            BottomNavItem(Routes.ANNOUNCEMENTS, "Announcements", Icons.Default.Campaign),
+            BottomNavItem(Routes.ANNOUNCEMENTS, "Announce", Icons.Default.Campaign),
             BottomNavItem(Routes.REPORT,        "Report",        Icons.Default.Report),
             BottomNavItem(Routes.MAP,           "Map",           Icons.Default.LocationOn),
             BottomNavItem(Routes.GUIDES,        "Guides",        Icons.Default.MenuBook)

@@ -38,6 +38,7 @@ import com.platform.smartwastemanager.features.announcement.presentation.Announc
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointsScreen
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
+import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
 
 /**
  * Central navigation host for the app.
@@ -155,6 +156,15 @@ fun AppNavHost(
             ActiveRouteScreen(
                 viewModel      = routeViewModel,
                 zoneName       = zoneName,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        // ADD this composable route (it's missing from your current AppNavHost):
+
+        composable(Routes.ZONE_MAP_PICKER) {
+            ZoneMapPickerScreen(
+                viewModel      = routeViewModel,
+                driverUid      = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() }
             )
         }

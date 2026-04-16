@@ -1,16 +1,12 @@
 package com.platform.smartwastemanager.features.home.presentation
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
@@ -19,32 +15,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.map.domain.Zone
-import java.text.SimpleDateFormat
-import java.util.*
 
-/**
- * NEW ZONE-BASED HOME SCREEN
- *
- * USER VIEW:
- * - If no collection points → show empty state with "Create Collection Point" button
- * - If has points → show point selector dropdown + schedule for selected point's zone
- * - Each schedule day has "Mark for Collection" button
- *
- * DRIVER VIEW:
- * - Show zone selector dropdown
- * - Show schedules for selected zone
- * - Each schedule day is clickable → calculates route from marked points in that zone
- * - FAB to create new schedules for the selected zone
- */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
@@ -84,21 +62,8 @@ fun HomeScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            // USER: Create collection point button
-            if (!isDriver || !isDriverViewActive) {
-                FloatingActionButton(
-                    onClick        = onNavigateToCollectionPointPicker,
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.Add,
-                        contentDescription = "Add Collection Point",
-                        tint               = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-            }
-            // DRIVER: Create schedule for selected zone
-            else if (selectedZone != null) {
+            // Only show FAB for drivers to create schedules
+            if (isDriver && isDriverViewActive && selectedZone != null) {
                 FloatingActionButton(
                     onClick        = onNavigateToManage,
                     containerColor = MaterialTheme.colorScheme.primary
@@ -120,7 +85,6 @@ fun HomeScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ========== HEADER ==========
             Text(
                 text       = "Collection Schedule",
                 style      = MaterialTheme.typography.headlineSmall,
@@ -129,7 +93,6 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ========== USER VIEW ==========
             if (!isDriver || !isDriverViewActive) {
                 UserHomeContent(
                     collectionPoints = collectionPoints,
@@ -145,9 +108,7 @@ fun HomeScreen(
                         viewModel.unmarkPointFromCollection(pointId, scheduleDayId)
                     }
                 )
-            }
-            // ========== DRIVER VIEW ==========
-            else {
+            } else {
                 DriverHomeContent(
                     zones             = zones,
                     selectedZone      = selectedZone,
@@ -161,10 +122,6 @@ fun HomeScreen(
     }
 }
 
-// =====================================================================
-// USER VIEW CONTENT
-// =====================================================================
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UserHomeContent(
@@ -177,46 +134,6 @@ private fun UserHomeContent(
     onMarkForCollection: (pointId: String, scheduleDayId: String) -> Unit,
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit
 ) {
-    // ========== EMPTY STATE ==========
-    if (collectionPoints.isEmpty()) {
-        Box(
-            modifier         = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text       = "No Collection Points",
-                    style      = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text  = "Create a collection point to view your zone's schedule and mark days for pickup.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = onNavigateToCollectionPointPicker) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Create Collection Point")
-                }
-            }
-        }
-        return
-    }
-
-    // ========== COLLECTION POINT SELECTOR ==========
     var expanded by remember { mutableStateOf(false) }
 
     ExposedDropdownMenuBox(
@@ -224,7 +141,7 @@ private fun UserHomeContent(
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedPoint?.name ?: "Select collection point",
+            value         = selectedPoint?.name ?: if (collectionPoints.isEmpty()) "No collection points" else "Select collection point",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("My Collection Point") },
@@ -255,13 +172,65 @@ private fun UserHomeContent(
                     }
                 )
             }
+
+            if (collectionPoints.isNotEmpty()) {
+                HorizontalDivider()
+            }
+
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Add New Collection Point",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                onClick = {
+                    expanded = false
+                    onNavigateToCollectionPointPicker()
+                }
+            )
         }
     }
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // ========== SCHEDULE LIST ==========
-    if (schedules.isEmpty()) {
+    if (selectedPoint == null && collectionPoints.isEmpty()) {
+        Box(
+            modifier         = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text       = "No Collection Points",
+                    style      = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text  = "Select 'Add New Collection Point' from the dropdown above to get started.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    } else if (schedules.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -301,17 +270,6 @@ private fun UserScheduleCard(
 ) {
     val isMarked = selectedPoint?.markedForCollectionDays?.contains(schedule.id) == true
 
-    var showNoGuideDialog by remember { mutableStateOf(false) }
-
-    if (showNoGuideDialog) {
-        AlertDialog(
-            onDismissRequest = { showNoGuideDialog = false },
-            title            = { Text("No Guide Available") },
-            text             = { Text("There is no recycling guide linked to ${schedule.dayOfWeek}'s collection yet.") },
-            confirmButton    = { TextButton(onClick = { showNoGuideDialog = false }) { Text("OK") } }
-        )
-    }
-
     Card(
         modifier  = Modifier.fillMaxWidth(),
         colors    = CardDefaults.cardColors(
@@ -343,7 +301,6 @@ private fun UserScheduleCard(
                     }
                 }
 
-                // Mark/Unmark button
                 if (selectedPoint != null) {
                     if (isMarked) {
                         IconButton(onClick = {
@@ -365,7 +322,6 @@ private fun UserScheduleCard(
                 }
             }
 
-            // Waste category chips
             if (schedule.wasteCategories.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
@@ -381,7 +337,6 @@ private fun UserScheduleCard(
                 }
             }
 
-            // View Guide link
             if (schedule.linkedGuideId != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(onClick = { onNavigateToGuide(schedule.linkedGuideId) }) {
@@ -391,10 +346,6 @@ private fun UserScheduleCard(
         }
     }
 }
-
-// =====================================================================
-// DRIVER VIEW CONTENT
-// =====================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -406,46 +357,6 @@ private fun DriverHomeContent(
     onNavigateToZoneManagement: () -> Unit,
     onCalculateRoute: (zoneId: String, scheduleDayId: String) -> Unit
 ) {
-    // ========== EMPTY STATE ==========
-    if (zones.isEmpty()) {
-        Box(
-            modifier         = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Map,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text       = "No Zones Created",
-                    style      = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text  = "Create zones first to manage collection schedules.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = onNavigateToZoneManagement) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Manage Zones")
-                }
-            }
-        }
-        return
-    }
-
-    // ========== ZONE SELECTOR ==========
     var expanded by remember { mutableStateOf(false) }
 
     ExposedDropdownMenuBox(
@@ -453,7 +364,7 @@ private fun DriverHomeContent(
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedZone?.name ?: "Select zone",
+            value         = selectedZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("Zone") },
@@ -475,13 +386,65 @@ private fun DriverHomeContent(
                     }
                 )
             }
+
+            if (zones.isNotEmpty()) {
+                HorizontalDivider()
+            }
+
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Add New Zone",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                onClick = {
+                    expanded = false
+                    onNavigateToZoneManagement()
+                }
+            )
         }
     }
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // ========== SCHEDULE LIST ==========
-    if (schedules.isEmpty()) {
+    if (selectedZone == null && zones.isEmpty()) {
+        Box(
+            modifier         = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.Map,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text       = "No Zones Created",
+                    style      = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text  = "Select 'Add New Zone' from the dropdown above to get started.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    } else if (schedules.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -557,7 +520,6 @@ private fun DriverScheduleCard(
                 )
             }
 
-            // Waste category chips
             if (schedule.wasteCategories.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
