@@ -1,12 +1,7 @@
 package com.platform.smartwastemanager.core.navigation
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -14,7 +9,6 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.auth.presentation.LoginScreen
@@ -32,12 +26,12 @@ import com.platform.smartwastemanager.features.map.presentation.ManageZonesScree
 import com.platform.smartwastemanager.features.map.presentation.MapScreen
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
+import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
 import com.platform.smartwastemanager.features.report.presentation.LocationPickerMapScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.report.presentation.ScanScreen
-import kotlinx.coroutines.launch
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationScreen
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementScreen
@@ -69,7 +63,6 @@ fun AppNavHost(
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
-    val schedules          by homeViewModel.schedules.collectAsStateWithLifecycle()
     val guides             by guideViewModel.guides.collectAsStateWithLifecycle()
 
     val isDriver             = currentUser?.role == UserRole.DRIVER
@@ -144,7 +137,7 @@ fun AppNavHost(
             )
         }
 
-        // ======================== ZONES (OLD ROUTES - Keep for backward compatibility) ========================
+        // ======================== ZONES ========================
 
         composable(Routes.MANAGE_ZONES) {
             ManageZonesScreen(
