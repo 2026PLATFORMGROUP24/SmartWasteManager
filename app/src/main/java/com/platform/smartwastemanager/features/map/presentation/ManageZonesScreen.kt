@@ -68,12 +68,12 @@ fun ManageZonesScreen(
             text  = {
                 Text(
                     "Permanently delete zone '${zoneToDelete!!.name}'?\n\n" +
-                            "It will be removed from any schedule days it was assigned to."
+                            "All schedules for this zone will also be deleted."
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteGlobalZone(zoneToDelete!!.id)
+                    viewModel.deleteZone(zoneToDelete!!.id)
                     zoneToDelete = null
                 }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)

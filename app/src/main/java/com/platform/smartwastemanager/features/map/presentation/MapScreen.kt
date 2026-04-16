@@ -456,7 +456,7 @@ private fun MapPinMarker(
     val markerHue = if (pin.reportType == ReportType.OVERFLOWING_BIN.displayName)
         BitmapDescriptorFactory.HUE_RED
     else
-        BitmapDescriptorFactory.HUE_GREEN
+        BitmapDescriptorFactory.HUE_AZURE
 
     MarkerInfoWindowContent(
         state   = rememberMarkerState(position = position),
