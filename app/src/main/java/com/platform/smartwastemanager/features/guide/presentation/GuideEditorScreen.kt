@@ -10,7 +10,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -63,6 +67,7 @@ fun GuideEditorScreen(
     var newImageUris      by remember { mutableStateOf<List<Uri>>(emptyList()) }
     // Guard so we only pre-fill the form once when the guide data arrives
     var hasPreloaded      by remember { mutableStateOf(false) }
+    var isEasyEditorMode  by remember { mutableStateOf(true) }
 
     // In edit mode, load the existing guide
     LaunchedEffect(guideId) {
@@ -166,11 +171,49 @@ fun GuideEditorScreen(
                 } else null
             )
 
-            // ---- Markdown content editor ----
+            SegmentedButtonRow {
+                SegmentedButton(
+                    selected = isEasyEditorMode,
+                    onClick = { isEasyEditorMode = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("Easy Editor") }
+                SegmentedButton(
+                    selected = !isEasyEditorMode,
+                    onClick = { isEasyEditorMode = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("Markdown") }
+            }
+
+            if (isEasyEditorMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssistChip(
+                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "**bold**" else "\n**bold**" },
+                        label = { Text("Bold") },
+                        leadingIcon = { Icon(Icons.Default.FormatBold, contentDescription = null) }
+                    )
+                    AssistChip(
+                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "*italic*" else "\n*italic*" },
+                        label = { Text("Italic") },
+                        leadingIcon = { Icon(Icons.Default.FormatItalic, contentDescription = null) }
+                    )
+                    AssistChip(
+                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "- list item" else "\n- list item" },
+                        label = { Text("List") },
+                        leadingIcon = { Icon(Icons.Default.FormatListBulleted, contentDescription = null) }
+                    )
+                    AssistChip(
+                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "> tip" else "\n> tip" },
+                        label = { Text("Quote") },
+                        leadingIcon = { Icon(Icons.Default.FormatQuote, contentDescription = null) }
+                    )
+                }
+            }
+
+            // ---- Content editor ----
             OutlinedTextField(
                 value         = contentMarkdown,
                 onValueChange = { contentMarkdown = it },
-                label         = { Text("Guide Content (Markdown) *") },
+                label         = { Text(if (isEasyEditorMode) "Guide Content *" else "Guide Content (Markdown) *") },
                 placeholder   = {
                     Text(
                         "# Heading\n\n" +

@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import com.platform.smartwastemanager.features.report.domain.ReportType
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Map screen — shows pending waste report pins and, for drivers in driver view,
@@ -60,6 +62,7 @@ fun MapScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -139,11 +142,20 @@ fun MapScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                viewModel.loadPins()
+                if (isDriverInDriverView && driverUid.isNotBlank()) {
+                    viewModel.loadDriverZones(driverUid)
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+        Box(modifier = Modifier.fillMaxSize()) {
 
             // ================================================================
             // GOOGLE MAP
@@ -410,6 +422,13 @@ fun MapScreen(
                     contentDescription = "My Location",
                     tint               = MaterialTheme.colorScheme.onSecondaryContainer
                 )
+            }
+        }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
             }
         }
     }

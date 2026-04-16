@@ -13,6 +13,7 @@ import com.platform.smartwastemanager.features.map.domain.MapPin
 import com.platform.smartwastemanager.features.map.domain.RouteResult
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.RouteStopType
+import com.platform.smartwastemanager.features.map.domain.TurnByTurnNavigation
 import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -358,7 +359,7 @@ class MapRepository {
     suspend fun getDirectionsToStop(
         fromLat: Double, fromLng: Double,
         toLat: Double,   toLng: Double
-    ): List<String> {
+    ): TurnByTurnNavigation {
         return try {
             val coords   = "$fromLng,$fromLat;$toLng,$toLat"
             // approaches=curb;curb — approach both the origin and destination from the kerb side
@@ -367,12 +368,19 @@ class MapRepository {
                 steps       = true,
                 approaches  = "curb;curb"
             )
-            if (response.code != "Ok") return emptyList()
-            val steps = response.routes.firstOrNull()?.legs?.firstOrNull()?.steps
-                ?: return emptyList()
-            steps.mapNotNull { buildDirectionString(it) }.filter { it.isNotBlank() }
+            if (response.code != "Ok") return TurnByTurnNavigation()
+            val route = response.routes.firstOrNull() ?: return TurnByTurnNavigation()
+            val steps = route.legs.firstOrNull()?.steps
+                ?.mapNotNull { buildDirectionString(it) }
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+            TurnByTurnNavigation(
+                steps = steps,
+                distanceMeters = route.distance.toInt(),
+                durationSeconds = route.duration.toInt()
+            )
         } catch (e: Exception) {
-            emptyList()
+            TurnByTurnNavigation()
         }
     }
 

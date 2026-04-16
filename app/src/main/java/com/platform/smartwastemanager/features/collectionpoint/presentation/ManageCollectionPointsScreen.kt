@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,11 @@ fun ManageCollectionPointsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf<CollectionPoint?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.resetUiState()
+    }
 
     val filteredPoints = remember(collectionPoints, searchQuery) {
         if (searchQuery.isBlank()) collectionPoints
@@ -117,30 +123,40 @@ fun ManageCollectionPointsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (filteredPoints.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = if (searchQuery.isBlank()) {
-                            "No collection points yet.\nTap + to add your first one."
-                        } else {
-                            "No matching points found."
-                        },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(filteredPoints, key = { it.id }) { point ->
-                        CollectionPointManagementCard(
-                            point = point,
-                            isSelected = point.id == selectedPointId,
-                            onSelect = {
-                                onPointSelected(point)
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    viewModel.loadCurrentUserPoints()
+                    isRefreshing = false
+                },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (filteredPoints.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (searchQuery.isBlank()) {
+                                "No collection points yet.\nTap + to add your first one."
+                            } else {
+                                "No matching points found."
                             },
-                            onDelete = { showDeleteDialog = point }
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(filteredPoints, key = { it.id }) { point ->
+                            CollectionPointManagementCard(
+                                point = point,
+                                isSelected = point.id == selectedPointId,
+                                onSelect = {
+                                    onPointSelected(point)
+                                },
+                                onDelete = { showDeleteDialog = point }
+                            )
+                        }
                     }
                 }
             }
