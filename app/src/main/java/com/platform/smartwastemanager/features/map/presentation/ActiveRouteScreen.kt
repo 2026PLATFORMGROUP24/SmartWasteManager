@@ -56,6 +56,7 @@ fun ActiveRouteScreen(
 ) {
     val routeState  by viewModel.activeRouteState.collectAsStateWithLifecycle()
     val actionState by viewModel.actionState.collectAsStateWithLifecycle()
+    val allZonesState by viewModel.allZonesState.collectAsStateWithLifecycle()
 
     val context           = LocalContext.current
     val scope             = rememberCoroutineScope()
@@ -72,6 +73,7 @@ fun ActiveRouteScreen(
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
+    var hasRequestedRoute by remember(zoneName) { mutableStateOf(false) }
 
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
@@ -100,6 +102,44 @@ fun ActiveRouteScreen(
                 )
             }
             else -> {}
+        }
+    }
+
+    LaunchedEffect(zoneName) {
+        hasRequestedRoute = false
+        viewModel.loadAllZones()
+    }
+
+    LaunchedEffect(allZonesState, hasRequestedRoute) {
+        if (hasRequestedRoute || routeState !is ActiveRouteUiState.Idle) return@LaunchedEffect
+        when (val zonesState = allZonesState) {
+            is AllZonesUiState.Success -> {
+                val zone = zonesState.zones.firstOrNull {
+                    it.name.equals(zoneName, ignoreCase = true)
+                }
+                if (zone == null) {
+                    hasRequestedRoute = true
+                    viewModel.setActiveRouteError("Could not find zone '$zoneName'.")
+                    return@LaunchedEffect
+                }
+
+                hasRequestedRoute = true
+                val gps = if (locationPermissions.allPermissionsGranted) {
+                    runCatching { LocationHelper.getCurrentLocation(context) }.getOrNull()
+                } else {
+                    null
+                }
+                viewModel.loadRouteForZone(
+                    zone = zone,
+                    driverLat = gps?.latitude ?: 0.0,
+                    driverLng = gps?.longitude ?: 0.0
+                )
+            }
+            is AllZonesUiState.Error -> {
+                hasRequestedRoute = true
+                viewModel.setActiveRouteError(zonesState.message)
+            }
+            else -> Unit
         }
     }
 

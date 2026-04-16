@@ -201,17 +201,17 @@ fun CollectionPointPickerScreen(
 
             Surface(
                 modifier        = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(16.dp),
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
                 color           = MaterialTheme.colorScheme.primaryContainer,
                 shape           = MaterialTheme.shapes.medium,
                 tonalElevation  = 4.dp
             ) {
                 Text(
                     text     = "📍 Tap on the map to set your collection point location",
-                    style    = MaterialTheme.typography.bodyMedium,
+                    style    = MaterialTheme.typography.bodySmall,
                     color    = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                 )
             }
         }

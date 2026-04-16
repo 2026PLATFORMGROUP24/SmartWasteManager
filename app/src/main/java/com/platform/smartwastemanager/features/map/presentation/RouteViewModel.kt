@@ -8,10 +8,12 @@ import com.platform.smartwastemanager.features.map.data.MapRepository
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 // =============================================================================
 // UI States — Zone screens
@@ -76,6 +78,7 @@ class RouteViewModel(
     val activeRouteState: StateFlow<ActiveRouteUiState> = _activeRouteState.asStateFlow()
 
     private var allZonesJob: Job? = null
+    private var routeJob: Job? = null
 
     // =========================================================================
     // All-Zones (Global Zone Management)
@@ -85,8 +88,14 @@ class RouteViewModel(
         allZonesJob?.cancel()
         allZonesJob = viewModelScope.launch {
             _allZonesState.value = AllZonesUiState.Loading
-            mapRepository.getAllZones().collect { zones ->
-                _allZonesState.value = AllZonesUiState.Success(zones)
+            try {
+                mapRepository.getAllZones().collect { zones ->
+                    _allZonesState.value = AllZonesUiState.Success(zones)
+                }
+            } catch (e: Exception) {
+                _allZonesState.value = AllZonesUiState.Error(
+                    e.message ?: "Could not load zones."
+                )
             }
         }
     }
@@ -147,15 +156,18 @@ class RouteViewModel(
         driverLat: Double = 0.0,
         driverLng: Double = 0.0
     ) {
-        viewModelScope.launch {
+        routeJob?.cancel()
+        routeJob = viewModelScope.launch {
             _activeRouteState.value = ActiveRouteUiState.Calculating
             try {
-                val result = mapRepository.calculateRouteForZone(
-                    zone               = zone,
-                    scheduleCategories = scheduleCategories,
-                    driverLat          = driverLat,
-                    driverLng          = driverLng
-                )
+                val result = withTimeout(20_000L) {
+                    mapRepository.calculateRouteForZone(
+                        zone               = zone,
+                        scheduleCategories = scheduleCategories,
+                        driverLat          = driverLat,
+                        driverLng          = driverLng
+                    )
+                }
                 _activeRouteState.value = if (result.stops.isEmpty()) {
                     val categoryLabel = if (scheduleCategories.isEmpty()) "any category"
                     else scheduleCategories.joinToString(", ")
@@ -168,6 +180,10 @@ class RouteViewModel(
                         roadPolyline = result.roadPolyline
                     )
                 }
+            } catch (_: TimeoutCancellationException) {
+                _activeRouteState.value = ActiveRouteUiState.Error(
+                    "Route calculation is taking too long. Please try again."
+                )
             } catch (e: Exception) {
                 _activeRouteState.value = ActiveRouteUiState.Error(
                     "Could not calculate route: ${e.message}"
@@ -222,17 +238,32 @@ class RouteViewModel(
 
     private fun fetchDirectionsToStop(driverLat: Double, driverLng: Double, stop: RouteStop) {
         viewModelScope.launch {
-            val directions = mapRepository.getDirectionsToStop(
-                fromLat = driverLat, fromLng = driverLng,
-                toLat   = stop.location.latitude, toLng = stop.location.longitude
-            )
-            val current = _activeRouteState.value as? ActiveRouteUiState.InProgress
-                ?: return@launch
-            _activeRouteState.value = current.copy(
-                directions        = directions,
-                directionsLoading = false
-            )
+            try {
+                val directions = withTimeout(15_000L) {
+                    mapRepository.getDirectionsToStop(
+                        fromLat = driverLat, fromLng = driverLng,
+                        toLat   = stop.location.latitude, toLng = stop.location.longitude
+                    )
+                }
+                val current = _activeRouteState.value as? ActiveRouteUiState.InProgress
+                    ?: return@launch
+                _activeRouteState.value = current.copy(
+                    directions        = directions,
+                    directionsLoading = false
+                )
+            } catch (_: Exception) {
+                val current = _activeRouteState.value as? ActiveRouteUiState.InProgress
+                    ?: return@launch
+                _activeRouteState.value = current.copy(
+                    directions        = emptyList(),
+                    directionsLoading = false
+                )
+            }
         }
+    }
+
+    fun setActiveRouteError(message: String) {
+        _activeRouteState.value = ActiveRouteUiState.Error(message)
     }
 
     fun resetRoute() {

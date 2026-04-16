@@ -1,7 +1,5 @@
 package com.platform.smartwastemanager.features.home.presentation
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,12 +13,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.map.domain.Zone
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -268,16 +272,32 @@ private fun UserScheduleCard(
     onMarkForCollection: (pointId: String, scheduleDayId: String) -> Unit,
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit
 ) {
+    val now = remember { LocalDate.now() }
+    val scheduleDay = remember(schedule.dayOfWeek) { schedule.dayOfWeek.toDayOfWeekOrNull() }
+    val collectionDate = remember(scheduleDay, now) { scheduleDay?.let { now.with(TemporalAdjusters.nextOrSame(it)) } }
+    val daysUntilCollection = remember(collectionDate, now) { collectionDate?.let { ChronoUnit.DAYS.between(now, it).toInt() } }
     val isMarked = selectedPoint?.markedForCollectionDays?.contains(schedule.id) == true
+    val isToday = daysUntilCollection == 0
+
+    val badgeText = when {
+        isToday && isMarked -> "TODAY • READY"
+        isToday -> "TODAY"
+        daysUntilCollection == 1 -> "TOMORROW"
+        isMarked -> "READY ✓"
+        daysUntilCollection != null && daysUntilCollection > 1 -> "IN $daysUntilCollection DAYS"
+        else -> null
+    }
+
+    val containerColor = when {
+        isToday && isMarked -> MaterialTheme.colorScheme.primaryContainer
+        isToday -> MaterialTheme.colorScheme.tertiaryContainer
+        isMarked -> Color(0xFF4CAF50).copy(alpha = 0.2f)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
 
     Card(
         modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(
-            containerColor = if (isMarked)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant
-        ),
+        colors    = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isMarked) 4.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -292,33 +312,74 @@ private fun UserScheduleCard(
                         style      = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    if (!schedule.collectionTimeRange.isNullOrBlank()) {
-                        Text(
-                            text  = "🕐 ${schedule.collectionTimeRange}",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
+
+                    badgeText?.let { badge ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            color = if (isMarked) {
+                                Color(0xFF2E7D32).copy(alpha = 0.15f)
+                            } else {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            },
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
                 }
 
                 if (selectedPoint != null) {
-                    if (isMarked) {
-                        IconButton(onClick = {
+                    IconButton(onClick = {
+                        if (isMarked) {
                             onUnmarkFromCollection(selectedPoint.id, schedule.id)
-                        }) {
-                            Icon(
-                                imageVector        = Icons.Default.CheckCircle,
-                                contentDescription = "Marked",
-                                tint               = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else {
-                        Button(onClick = {
+                        } else {
                             onMarkForCollection(selectedPoint.id, schedule.id)
-                        }) {
-                            Text("Mark for Collection")
                         }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = if (isMarked) "Ready for collection" else "Mark ready for collection",
+                            tint = if (isMarked) Color(0xFF2E7D32) else MaterialTheme.colorScheme.outline
+                        )
                     }
+                }
+            }
+
+            if (!schedule.collectionTimeRange.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🕐",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = schedule.collectionTimeRange,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            if (selectedPoint != null && !isMarked) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(onClick = {
+                    onMarkForCollection(selectedPoint.id, schedule.id)
+                }) {
+                    Text("Ready for Collection")
                 }
             }
 
@@ -344,6 +405,17 @@ private fun UserScheduleCard(
                 }
             }
         }
+    }
+}
+
+private fun String.toDayOfWeekOrNull(): DayOfWeek? {
+    val normalized = trim()
+    if (normalized.isBlank()) return null
+
+    return DayOfWeek.entries.firstOrNull { day ->
+        day.name.equals(normalized, ignoreCase = true) ||
+            day.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                .equals(normalized, ignoreCase = true)
     }
 }
 
