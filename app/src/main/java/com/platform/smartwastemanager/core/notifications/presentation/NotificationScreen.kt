@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Send
@@ -19,29 +20,28 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Notification Centre — visible to drivers only.
+ * Notification Centre — visible to drivers in driver view only.
  *
  * Lets the driver:
- *  1. Force-push a "New Waste Report" notification   (local or to all drivers)
- *  2. Force-push a "Collection Reminder" notification (local or to all users)
- *  3. Compose and send a custom announcement          (local or to all users)
+ *  1. Force-push a "New Waste Report" notification to all drivers
+ *  2. Force-push a "Collection Reminder" to all users
+ *  3. Compose and send a custom announcement to all users
  *
- * LOCAL  = shows notification on this device instantly. Good for testing the look.
- * PUSH   = sends via Firestore → Cloud Function → FCM to all targeted devices.
+ * PUSH = writes to Firestore → Cloud Function fans out via FCM to all targets.
  *
- * Note: The driver is also a user, so PUSH notifications will also appear on the
- * driver's own device when the Cloud Function sends them back via FCM.
+ * @param onNavigateBack Called when the driver taps the back arrow.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationScreen(
-    viewModel: NotificationViewModel
+    viewModel: NotificationViewModel,
+    onNavigateBack: () -> Unit
 ) {
     val sendState by viewModel.sendState.collectAsStateWithLifecycle()
     val context   = LocalContext.current
     val snackbar  = remember { SnackbarHostState() }
 
-    // Show result snackbar and reset state
+    // Show result snackbar and reset state after each action
     LaunchedEffect(sendState) {
         when (sendState) {
             is NotificationSendState.Success -> {
@@ -57,6 +57,24 @@ fun NotificationScreen(
     }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Notification Centre") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor             = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor          = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { innerPadding ->
         Column(
@@ -68,14 +86,11 @@ fun NotificationScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
 
-            // ---- Header ----
+            // ---- Header description ----
             Text(
-                text  = "Notification Centre",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text  = "Test notifications locally on this device, or push to all targeted users via FCM.",
+                text  = "Push notifications to users via FCM. " +
+                        "The request is sent to Firestore and your Cloud Function " +
+                        "fans it out to all targeted devices.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -83,12 +98,12 @@ fun NotificationScreen(
             HorizontalDivider()
 
             // ================================================================
-            // SECTION 1 — New Waste Report Notification
+            // SECTION 1 — New Waste Report Notification → all DRIVERS
             // ================================================================
             NotificationSection(
                 icon        = Icons.Default.Warning,
                 title       = "New Waste Report",
-                description = "Simulates a resident submitting a report. Pushed to all DRIVERS.",
+                description = "Pushed to all DRIVERS. Simulates a resident submitting a report.",
                 content     = {
                     var category   by remember { mutableStateOf("Recyclable") }
                     var streetName by remember { mutableStateOf("123 Main Street") }
@@ -107,45 +122,29 @@ fun NotificationScreen(
                         modifier      = Modifier.fillMaxWidth(),
                         singleLine    = true
                     )
-                    Row(
-                        modifier              = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick  = {
-                                viewModel.testReportNotificationLocal(context, category, streetName)
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled  = sendState !is NotificationSendState.Sending
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Local")
-                        }
-                        Button(
-                            onClick  = { viewModel.pushReportNotification(category, streetName) },
-                            modifier = Modifier.weight(1f),
-                            enabled  = sendState !is NotificationSendState.Sending
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Push to Drivers")
-                        }
-                    }
+
+                    SendButton(
+                        label     = "Push to All Drivers",
+                        isSending = sendState is NotificationSendState.Sending,
+                        onClick   = { viewModel.pushReportNotification(category, streetName) }
+                    )
                 }
             )
 
             HorizontalDivider()
 
             // ================================================================
-            // SECTION 2 — Collection Reminder Notification
+            // SECTION 2 — Collection Reminder → ALL users
             // ================================================================
             NotificationSection(
                 icon        = Icons.Default.Today,
                 title       = "Collection Reminder",
-                description = "Reminds residents to put out their bins. Pushed to ALL users.",
+                description = "Pushed to ALL users. Reminds residents to put out their bins.",
                 content     = {
-                    val days = listOf("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+                    val days = listOf(
+                        "Monday","Tuesday","Wednesday",
+                        "Thursday","Friday","Saturday","Sunday"
+                    )
                     var selectedDay     by remember { mutableStateOf("Monday") }
                     var dayDropdownOpen by remember { mutableStateOf(false) }
                     var categoriesText  by remember { mutableStateOf("Recyclable, Glass") }
@@ -160,7 +159,9 @@ fun NotificationScreen(
                             readOnly      = true,
                             label         = { Text("Day of Week") },
                             trailingIcon  = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = dayDropdownOpen)
+                                ExposedDropdownMenuDefaults.TrailingIcon(
+                                    expanded = dayDropdownOpen
+                                )
                             },
                             modifier = Modifier
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
@@ -173,7 +174,10 @@ fun NotificationScreen(
                             days.forEach { day ->
                                 DropdownMenuItem(
                                     text    = { Text(day) },
-                                    onClick = { selectedDay = day; dayDropdownOpen = false }
+                                    onClick = {
+                                        selectedDay     = day
+                                        dayDropdownOpen = false
+                                    }
                                 )
                             }
                         }
@@ -188,45 +192,30 @@ fun NotificationScreen(
                         singleLine    = true
                     )
 
-                    val categories = categoriesText.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    val categories = categoriesText
+                        .split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
 
-                    Row(
-                        modifier              = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick  = {
-                                viewModel.testReminderNotificationLocal(context, selectedDay, categories)
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled  = sendState !is NotificationSendState.Sending
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Local")
+                    SendButton(
+                        label     = "Push Reminder to All Users",
+                        isSending = sendState is NotificationSendState.Sending,
+                        onClick   = {
+                            viewModel.pushReminderNotification(selectedDay, categories)
                         }
-                        Button(
-                            onClick  = { viewModel.pushReminderNotification(selectedDay, categories) },
-                            modifier = Modifier.weight(1f),
-                            enabled  = sendState !is NotificationSendState.Sending
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Push to All")
-                        }
-                    }
+                    )
                 }
             )
 
             HorizontalDivider()
 
             // ================================================================
-            // SECTION 3 — Announcement
+            // SECTION 3 — Announcement → ALL users
             // ================================================================
             NotificationSection(
                 icon        = Icons.Default.Campaign,
                 title       = "Announcement",
-                description = "Send a custom announcement to ALL users (drivers + residents).",
+                description = "Pushed to ALL users (drivers + residents).",
                 content     = {
                     var title   by remember { mutableStateOf("") }
                     var message by remember { mutableStateOf("") }
@@ -247,49 +236,34 @@ fun NotificationScreen(
                             .heightIn(min = 100.dp)
                     )
 
-                    val canSend = title.isNotBlank() && message.isNotBlank() &&
+                    val canSend = title.isNotBlank() &&
+                            message.isNotBlank() &&
                             sendState !is NotificationSendState.Sending
 
-                    Row(
-                        modifier              = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick  = {
-                                viewModel.testAnnouncementNotificationLocal(context, title, message)
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled  = canSend
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Local")
-                        }
-                        Button(
-                            onClick  = { viewModel.pushAnnouncementNotification(title, message) },
-                            modifier = Modifier.weight(1f),
-                            enabled  = canSend
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Push to All")
-                        }
-                    }
-
-                    // Sending spinner
-                    if (sendState is NotificationSendState.Sending) {
-                        Row(
-                            modifier          = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Sending…", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    SendButton(
+                        label     = "Send Announcement to All",
+                        isSending = sendState is NotificationSendState.Sending,
+                        enabled   = canSend,
+                        onClick   = { viewModel.pushAnnouncementNotification(title, message) }
+                    )
                 }
             )
+
+            // Sending indicator
+            if (sendState is NotificationSendState.Sending) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier    = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sending…", style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             Spacer(Modifier.height(24.dp))
         }
@@ -297,7 +271,7 @@ fun NotificationScreen(
 }
 
 // =====================================================================
-// NotificationSection — reusable card wrapper for each notification type
+// Reusable composables
 // =====================================================================
 
 @Composable
@@ -328,5 +302,33 @@ private fun NotificationSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         content()
+    }
+}
+
+@Composable
+private fun SendButton(
+    label: String,
+    isSending: Boolean,
+    enabled: Boolean = !isSending,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick  = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        enabled  = enabled
+    ) {
+        if (isSending) {
+            CircularProgressIndicator(
+                modifier    = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color       = MaterialTheme.colorScheme.onPrimary
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Sending…")
+        } else {
+            Icon(Icons.Default.Send, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(label)
+        }
     }
 }

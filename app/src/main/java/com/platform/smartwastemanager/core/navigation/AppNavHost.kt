@@ -40,14 +40,17 @@ import com.platform.smartwastemanager.features.report.presentation.ScanScreen
 import kotlinx.coroutines.launch
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationScreen
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
+import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementScreen
+import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
+import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
+import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointsScreen
+import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
 
 /**
  * Central navigation host for the app.
  *
  * Rule 3  : All ViewModels are created in MainActivity and passed here as parameters.
- *           viewModel() is NEVER called inside this composable or any destination.
  * Rule 11 : AppNavHost and MainActivity signatures must always be in sync.
- *           Any parameter added here must also be added to the call-site in MainActivity.
  */
 @Composable
 fun AppNavHost(
@@ -58,15 +61,15 @@ fun AppNavHost(
     reportViewModel: ReportViewModel,
     mapViewModel: MapViewModel,
     routeViewModel: RouteViewModel,
-    guideViewModel: GuideViewModel,       // Phase 5
+    guideViewModel: GuideViewModel,
     notificationViewModel: NotificationViewModel,
+    announcementViewModel: AnnouncementViewModel,
+    collectionPointViewModel: CollectionPointViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
     val schedules          by homeViewModel.schedules.collectAsStateWithLifecycle()
-
-    // Guides list — collected here so ScheduleManagementScreen can use it for the guide picker
     val guides             by guideViewModel.guides.collectAsStateWithLifecycle()
 
     val isDriver             = currentUser?.role == UserRole.DRIVER
@@ -129,7 +132,7 @@ fun AppNavHost(
             ScheduleManagementScreen(
                 viewModel      = homeViewModel,
                 driverUid      = currentUser?.uid ?: "",
-                guides         = guides,           // Phase 5: pass real guides for the dropdown
+                guides         = guides,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -226,6 +229,37 @@ fun AppNavHost(
             )
         }
 
+        // ======================== ANNOUNCEMENTS ========================
+
+        composable(Routes.ANNOUNCEMENTS) {
+            AnnouncementScreen(
+                viewModel            = announcementViewModel,
+                isDriverInDriverView = isDriverInDriverView,
+                currentUserUid       = currentUser?.uid ?: ""
+            )
+        }
+
+        // ======================== COLLECTION POINTS ========================
+
+        composable(Routes.COLLECTION_POINTS) {
+            CollectionPointsScreen(
+                viewModel          = collectionPointViewModel,
+                onNavigateToCreate = { navController.navigate(Routes.COLLECTION_POINT_PICKER) },
+                onPointSelected    = { point ->
+                    collectionPointViewModel.selectPoint(point)
+                    // Navigate to a schedule view filtered by this point's zone
+                    // TODO: implement filtered schedule view
+                }
+            )
+        }
+
+        composable(Routes.COLLECTION_POINT_PICKER) {
+            CollectionPointPickerScreen(
+                viewModel      = collectionPointViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
         // ======================== REPORT ========================
 
         composable(Routes.REPORT) {
@@ -278,9 +312,8 @@ fun AppNavHost(
             )
         }
 
-        // ======================== GUIDES (Phase 5) ========================
+        // ======================== GUIDES ========================
 
-        // Guide list — all users
         composable(Routes.GUIDES) {
             GuideListScreen(
                 viewModel              = guideViewModel,
@@ -295,7 +328,6 @@ fun AppNavHost(
             )
         }
 
-        // Guide detail — all users
         composable(
             route     = Routes.GUIDE_DETAIL,
             arguments = listOf(navArgument("guideId") { type = NavType.StringType })
@@ -312,15 +344,13 @@ fun AppNavHost(
             )
         }
 
-        // Guide editor — create mode (no guideId argument)
         composable(Routes.GUIDE_EDITOR) {
             GuideEditorScreen(
                 viewModel      = guideViewModel,
-                guideId        = null,                    // null = create new guide
+                guideId        = null,
                 currentUserUid = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() },
                 onSaveSuccess  = { newId ->
-                    // After creating, navigate directly to the new guide's detail screen
                     navController.navigate(Routes.buildGuideDetail(newId)) {
                         popUpTo(Routes.GUIDE_EDITOR) { inclusive = true }
                     }
@@ -328,7 +358,6 @@ fun AppNavHost(
             )
         }
 
-        // Guide editor — edit mode (guideId argument present)
         composable(
             route     = Routes.GUIDE_EDITOR_EDIT,
             arguments = listOf(navArgument("guideId") { type = NavType.StringType })
@@ -336,20 +365,24 @@ fun AppNavHost(
             val guideId = backStackEntry.arguments?.getString("guideId") ?: ""
             GuideEditorScreen(
                 viewModel      = guideViewModel,
-                guideId        = guideId,                 // non-null = edit existing guide
+                guideId        = guideId,
                 currentUserUid = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() },
                 onSaveSuccess  = { updatedId ->
-                    // Return to the detail screen after a successful edit
                     navController.navigate(Routes.buildGuideDetail(updatedId)) {
                         popUpTo(Routes.buildGuideEditor(guideId)) { inclusive = true }
                     }
                 }
             )
         }
-        // ======================== NOTIFICATIONS (Phase 6 — driver only) ========================
+
+        // ======================== NOTIFICATIONS ========================
+
         composable(Routes.NOTIFICATIONS) {
-            NotificationScreen(viewModel = notificationViewModel)
+            NotificationScreen(
+                viewModel      = notificationViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }

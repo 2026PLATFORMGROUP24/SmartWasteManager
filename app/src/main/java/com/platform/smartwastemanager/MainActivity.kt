@@ -35,6 +35,9 @@ import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
+import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
+import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
+import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -98,17 +101,16 @@ fun SmartWasteManagerAppContent() {
     val notificationViewModel: NotificationViewModel = viewModel(
         factory = NotificationViewModel.factory(app.container.notificationRepository)
     )
+    val announcementViewModel: AnnouncementViewModel = viewModel(
+        factory = AnnouncementViewModel.factory(app.container.announcementRepository)
+    )
+    val collectionPointViewModel: CollectionPointViewModel = viewModel(
+        factory = CollectionPointViewModel.factory(app.container.collectionPointRepository)
+    )
 
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
-    //
-    // BUG FIX (Map pins not showing):
-    //   MapViewModel.init { loadPins() } fires BEFORE auth completes, so the
-    //   Firestore listener starts unauthenticated, gets rejected, and returns
-    //   an empty list that never refreshes. Calling mapViewModel.loadPins() here
-    //   restarts the listener once auth is confirmed, same pattern as schedules.
     // =========================================================================
-    // Request POST_NOTIFICATIONS permission on Android 13+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { /* granted or denied — notifications degrade gracefully either way */ }
@@ -119,9 +121,11 @@ fun SmartWasteManagerAppContent() {
         }
     }
     authViewModel.onAuthSuccess = {
-        homeViewModel.loadSchedules()   // reload schedules after auth
-        mapViewModel.loadPins()         // FIX: reload map pins after auth
-        guideViewModel.loadGuides()     // reload guides after auth
+        homeViewModel.loadSchedules()
+        mapViewModel.loadPins()
+        guideViewModel.loadGuides()
+        announcementViewModel.loadAnnouncements()
+        collectionPointViewModel.loadCurrentUserPoints()
     }
 
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -150,6 +154,9 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.ZONE_MAP_PICKER  -> "Create Zone"
         currentDestination?.route == Routes.MANAGE_ZONES     -> "Global Zones"
         currentDestination?.route == Routes.ACTIVE_ROUTE     -> "Active Route"
+        currentDestination?.route == Routes.ANNOUNCEMENTS    -> "Announcements"
+        currentDestination?.route == Routes.COLLECTION_POINTS -> "My Collection Points"
+        currentDestination?.route == Routes.COLLECTION_POINT_PICKER -> "Set Collection Point"
         currentDestination?.route?.startsWith("guides/editor/") == true -> "Edit Guide"
         currentDestination?.route?.startsWith("guides/")              == true -> "Guide"
         currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
@@ -187,9 +194,21 @@ fun SmartWasteManagerAppContent() {
             if (!isOnAuthScreen) {
                 Column {
                     TopAppBar(
-                        title = { Text(screenTitle) },
+                        title = {
+                            Column {
+                                Text(screenTitle)
+                                // Show username below title
+                                currentUser?.username?.let { username ->
+                                    Text(
+                                        text = "👤 $username",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        },
                         actions = {
-                            // Toggle between driver/user view — visible only to drivers
+                            // Notification bell — visible to drivers only
                             if (isDriver) {
                                 IconButton(onClick = {
                                     navController.navigate(Routes.NOTIFICATIONS) {
@@ -202,6 +221,7 @@ fun SmartWasteManagerAppContent() {
                                     )
                                 }
                             }
+                            // Toggle between driver/user view — visible only to drivers
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
@@ -231,8 +251,6 @@ fun SmartWasteManagerAppContent() {
                     )
 
                     // ---- Global "Viewing as User" banner (Rule 13) ----
-                    // Shown on EVERY screen when a driver is in user view.
-                    // This is the ONLY place this banner exists — no per-screen copies.
                     if (isViewingAsUser) {
                         Row(
                             modifier = Modifier
@@ -289,16 +307,18 @@ fun SmartWasteManagerAppContent() {
         }
     ) { innerPadding ->
         AppNavHost(
-            navController    = navController,
-            startDestination = startDestination,
-            authViewModel    = authViewModel,
-            homeViewModel    = homeViewModel,
-            reportViewModel  = reportViewModel,
-            mapViewModel     = mapViewModel,
-            routeViewModel   = routeViewModel,
-            guideViewModel   = guideViewModel,   // Rule 11: added here AND in AppNavHost
-            notificationViewModel = notificationViewModel,
-            modifier         = Modifier.padding(innerPadding)
+            navController             = navController,
+            startDestination          = startDestination,
+            authViewModel             = authViewModel,
+            homeViewModel             = homeViewModel,
+            reportViewModel           = reportViewModel,
+            mapViewModel              = mapViewModel,
+            routeViewModel            = routeViewModel,
+            guideViewModel            = guideViewModel,
+            notificationViewModel     = notificationViewModel,
+            announcementViewModel     = announcementViewModel,
+            collectionPointViewModel  = collectionPointViewModel,
+            modifier                  = Modifier.padding(innerPadding)
         )
     }
 }

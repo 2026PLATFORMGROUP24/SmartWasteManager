@@ -9,16 +9,13 @@ import com.platform.smartwastemanager.features.map.data.MapRepository
 import com.platform.smartwastemanager.features.report.data.ReportRepository
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
 import com.platform.smartwastemanager.core.notifications.NotificationRepository
+import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
+import com.platform.smartwastemanager.features.collectionpoint.data.CollectionPointRepository
 
 /**
  * AppContainer holds every repository for the lifetime of the app.
  * Created once in SmartWasteManagerApp.onCreate() and accessed via
  * (applicationContext as SmartWasteManagerApp).container
- *
- * Context is required for ViewToggleRepository (DataStore) and WasteImageClassifier.
- *
- * NOTE: mapRepository and scheduleRepository are both passed to RouteViewModel —
- * RouteViewModel now needs scheduleRepository to update zoneIds on schedule docs.
  */
 class AppContainer(context: Context) {
 
@@ -42,5 +39,11 @@ class AppContainer(context: Context) {
     val guideRepository = GuideRepository()
 
     // ---- Notifications ----
-    val notificationRepository   = NotificationRepository()
+    val notificationRepository = NotificationRepository()
+
+    // ---- Announcements ----
+    val announcementRepository = AnnouncementRepository()
+
+    // ---- Collection Points (zone-based system) ----
+    val collectionPointRepository = CollectionPointRepository()
 }

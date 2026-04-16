@@ -3,6 +3,7 @@ package com.platform.smartwastemanager.features.auth.data
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessaging
 import com.platform.smartwastemanager.core.util.Constants
 import com.platform.smartwastemanager.features.auth.domain.User
 import com.platform.smartwastemanager.features.auth.domain.UserRole
@@ -10,13 +11,19 @@ import kotlinx.coroutines.tasks.await
 
 /**
  * Handles all Firebase Authentication and Firestore user profile operations.
+ *
+ * Phase 6 addition: after every sign-in and sign-up, we fetch the device's
+ * current FCM token and write it to users/{uid}/fcmToken immediately.
+ * This fixes the race condition where onNewToken() fires before the user is
+ * authenticated, causing the token to never be saved.
  */
 class AuthRepository {
 
     private val firebaseAuth = FirebaseAuth.getInstance()
-    private val firestore = FirebaseFirestore.getInstance()
+    private val firestore    = FirebaseFirestore.getInstance()
 
-    /** Creates a new Firebase Auth account and saves the Firestore user document. */
+    /** Creates a new Firebase Auth account, saves the Firestore user document,
+     *  then immediately saves the FCM token. */
     suspend fun signUp(
         email: String,
         password: String,
@@ -31,15 +38,27 @@ class AuthRepository {
             val uid = authResult.user?.uid
                 ?: return Result.failure(Exception("Sign up failed: no UID returned"))
 
-            val user = User(uid = uid, username = username, email = email,
-                role = UserRole.fromString(role), fcmToken = "")
+            val user = User(
+                uid      = uid,
+                username = username,
+                email    = email,
+                role     = UserRole.fromString(role),
+                fcmToken = ""
+            )
 
+            // Save the user document
             firestore.collection(Constants.COLLECTION_USERS).document(uid)
                 .set(mapOf(
-                    "uid" to uid, "username" to username, "email" to email,
-                    "role" to role.lowercase(), "fcmToken" to "",
+                    "uid"       to uid,
+                    "username"  to username,
+                    "email"     to email,
+                    "role"      to role.lowercase(),
+                    "fcmToken"  to "",
                     "createdAt" to Timestamp.now()
                 )).await()
+
+            // Immediately save the FCM token so this device can receive pushes
+            saveFcmTokenForUid(uid)
 
             Result.success(user)
         } catch (e: Exception) {
@@ -47,10 +66,8 @@ class AuthRepository {
         }
     }
 
-    /**
-     * Signs in and fetches the Firestore profile.
-     * If no profile document exists, creates a default one.
-     */
+    /** Signs in, fetches or creates the Firestore profile,
+     *  then immediately saves the FCM token. */
     suspend fun signIn(email: String, password: String): Result<User> {
         return try {
             val authResult = firebaseAuth
@@ -60,27 +77,62 @@ class AuthRepository {
             val uid = authResult.user?.uid
                 ?: return Result.failure(Exception("Sign in failed: no UID returned"))
 
-            fetchOrCreateUserProfile(uid, email)
+            val result = fetchOrCreateUserProfile(uid, email)
+
+            // Immediately save the FCM token so this device can receive pushes
+            if (result.isSuccess) {
+                saveFcmTokenForUid(uid)
+            }
+
+            result
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Fetches a user's Firestore profile by UID and refreshes the FCM token.
+     *  Used to restore the session on app start. */
+    suspend fun fetchUserProfile(uid: String): Result<User> {
+        return try {
+            val result = fetchOrCreateUserProfile(
+                uid,
+                firebaseAuth.currentUser?.email ?: ""
+            )
+
+            // Refresh token on session restore too — token may have rotated since last launch
+            if (result.isSuccess) {
+                saveFcmTokenForUid(uid)
+            }
+
+            result
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Fetches a user's Firestore profile by UID.
-     * Used to restore the session on app start.
+     * Fetches the FCM registration token for this device and writes it to
+     * users/{uid}/fcmToken in Firestore.
+     *
+     * Called after every sign-in, sign-up, and session restore. This guarantees
+     * the token in Firestore is always fresh and belongs to the currently signed-in
+     * user, regardless of when FCM originally called onNewToken().
      */
-    suspend fun fetchUserProfile(uid: String): Result<User> {
-        return try {
-            fetchOrCreateUserProfile(uid, firebaseAuth.currentUser?.email ?: "")
+    private suspend fun saveFcmTokenForUid(uid: String) {
+        try {
+            val token = FirebaseMessaging.getInstance().token.await()
+            firestore.collection(Constants.COLLECTION_USERS)
+                .document(uid)
+                .update(Constants.FIELD_FCM_TOKEN, token)
+                .await()
         } catch (e: Exception) {
-            Result.failure(e)
+            // Non-fatal — the token will be retried on next sign-in
         }
     }
 
     /**
      * Fetches the Firestore document for [uid].
-     * If it doesn't exist (account from another project), creates a default document.
+     * If it doesn't exist, creates a default "user" role document.
      */
     private suspend fun fetchOrCreateUserProfile(uid: String, email: String): Result<User> {
         val document = firestore
@@ -90,28 +142,31 @@ class AuthRepository {
             .await()
 
         return if (document.exists()) {
-            val user = User(
-                uid = uid,
-                username = document.getString("username") ?: "",
-                email = document.getString("email") ?: email,
-                role = UserRole.fromString(document.getString("role") ?: "user"),
-                fcmToken = document.getString("fcmToken") ?: ""
+            Result.success(
+                User(
+                    uid      = uid,
+                    username = document.getString("username") ?: "",
+                    email    = document.getString("email")    ?: email,
+                    role     = UserRole.fromString(document.getString("role") ?: "user"),
+                    fcmToken = document.getString("fcmToken") ?: ""
+                )
             )
-            Result.success(user)
         } else {
-            // No document — create a default one
             val defaultUser = User(
-                uid = uid,
+                uid      = uid,
                 username = email.substringBefore("@"),
-                email = email,
-                role = UserRole.USER,
+                email    = email,
+                role     = UserRole.USER,
                 fcmToken = ""
             )
             firestore.collection(Constants.COLLECTION_USERS).document(uid)
                 .set(mapOf(
-                    "uid" to uid, "username" to defaultUser.username,
-                    "email" to email, "role" to "user",
-                    "fcmToken" to "", "createdAt" to Timestamp.now()
+                    "uid"       to uid,
+                    "username"  to defaultUser.username,
+                    "email"     to email,
+                    "role"      to "user",
+                    "fcmToken"  to "",
+                    "createdAt" to Timestamp.now()
                 )).await()
             Result.success(defaultUser)
         }
