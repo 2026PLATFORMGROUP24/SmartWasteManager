@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
+import androidx.compose.foundation.layout.FlowRow
 
 /**
  * Guide editor screen — used exclusively by drivers to create or edit a recycling guide.
@@ -44,7 +45,7 @@ import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
  * @param onNavigateBack Called when the driver taps the back arrow.
  * @param onSaveSuccess  Called with the saved guide ID after a successful save.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GuideEditorScreen(
     viewModel: GuideViewModel,
@@ -67,7 +68,6 @@ fun GuideEditorScreen(
     var newImageUris      by remember { mutableStateOf<List<Uri>>(emptyList()) }
     // Guard so we only pre-fill the form once when the guide data arrives
     var hasPreloaded      by remember { mutableStateOf(false) }
-    var isEasyEditorMode  by remember { mutableStateOf(true) }
 
     // In edit mode, load the existing guide
     LaunchedEffect(guideId) {
@@ -89,10 +89,17 @@ fun GuideEditorScreen(
 
     // Navigate away once the save operation completes successfully
     LaunchedEffect(saveState) {
-        if (saveState is GuideSaveUiState.Success) {
-            val savedId = (saveState as GuideSaveUiState.Success).guideId
-            viewModel.resetSaveState()
-            onSaveSuccess(savedId)
+        when (val state = saveState) {
+            is GuideSaveUiState.Success -> {
+                val savedId = state.guideId
+                // Clean up before navigating
+                viewModel.resetSaveState()
+                viewModel.resetDetailState()
+                // Navigate with a small delay to ensure state is cleared
+                kotlinx.coroutines.delay(100)
+                onSaveSuccess(savedId)
+            }
+            else -> { /* Do nothing */ }
         }
     }
 
@@ -171,49 +178,56 @@ fun GuideEditorScreen(
                 } else null
             )
 
-            SegmentedButtonRow {
-                SegmentedButton(
-                    selected = isEasyEditorMode,
-                    onClick = { isEasyEditorMode = true },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                ) { Text("Easy Editor") }
-                SegmentedButton(
-                    selected = !isEasyEditorMode,
-                    onClick = { isEasyEditorMode = false },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                ) { Text("Markdown") }
-            }
 
-            if (isEasyEditorMode) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(
-                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "**bold**" else "\n**bold**" },
-                        label = { Text("Bold") },
-                        leadingIcon = { Icon(Icons.Default.FormatBold, contentDescription = null) }
-                    )
-                    AssistChip(
-                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "*italic*" else "\n*italic*" },
-                        label = { Text("Italic") },
-                        leadingIcon = { Icon(Icons.Default.FormatItalic, contentDescription = null) }
-                    )
-                    AssistChip(
-                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "- list item" else "\n- list item" },
-                        label = { Text("List") },
-                        leadingIcon = { Icon(Icons.Default.FormatListBulleted, contentDescription = null) }
-                    )
-                    AssistChip(
-                        onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "> tip" else "\n> tip" },
-                        label = { Text("Quote") },
-                        leadingIcon = { Icon(Icons.Default.FormatQuote, contentDescription = null) }
-                    )
-                }
+            // Replace the entire formatting section with template buttons
+            // Replace the "if (isEasyEditorMode) {" block with just the content:
+            Text(
+                text = "Quick Templates",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                AssistChip(
+                    onClick = {
+                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n# New Heading\n" else "# New Heading\n"
+                    },
+                    label = { Text("Add Heading") }
+                )
+                AssistChip(
+                    onClick = {
+                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n**Bold text here**" else "**Bold text here**"
+                    },
+                    label = { Text("Add Bold") }
+                )
+                AssistChip(
+                    onClick = {
+                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n*Italic text here*" else "*Italic text here*"
+                    },
+                    label = { Text("Add Italic") }
+                )
+                AssistChip(
+                    onClick = {
+                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n- List item 1\n- List item 2\n- List item 3" else "- List item 1\n- List item 2\n- List item 3"
+                    },
+                    label = { Text("Add List") }
+                )
+                AssistChip(
+                    onClick = {
+                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n> 💡 Tip: Add your tip here" else "> 💡 Tip: Add your tip here"
+                    },
+                    label = { Text("Add Tip") }
+                )
             }
 
             // ---- Content editor ----
             OutlinedTextField(
                 value         = contentMarkdown,
                 onValueChange = { contentMarkdown = it },
-                label         = { Text(if (isEasyEditorMode) "Guide Content *" else "Guide Content (Markdown) *") },
+                label = { Text("Guide Content *") },
                 placeholder   = {
                     Text(
                         "# Heading\n\n" +

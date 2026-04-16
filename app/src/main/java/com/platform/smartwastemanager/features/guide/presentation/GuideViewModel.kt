@@ -118,33 +118,54 @@ class GuideViewModel(
      * @param guide        Guide to create. [guide.id] is ignored — Firestore auto-assigns one.
      * @param newImageUris Local URIs from the gallery picker, not yet uploaded.
      */
-    fun createGuide(guide: RecyclingGuide, newImageUris: List<Uri> = emptyList()) {
+    /**
+     * Creates a new guide. Images are uploaded AFTER the Firestore document is created
+     * so we have a real document ID to use as the Storage folder name.
+     *
+     * @param guide        Guide to create. [guide.id] is ignored — Firestore auto-assigns one.
+     * @param newImageUris Local URIs from the gallery picker, not yet uploaded.
+     */
+    fun createGuide(guide: RecyclingGuide, newImageUris: List<Uri>) {
         viewModelScope.launch {
             _saveUiState.value = GuideSaveUiState.Saving
 
-            // Step 1 — create the document to get a real Firestore ID
-            val createResult = guideRepository.createGuide(guide)
-            if (createResult.isFailure) {
-                _saveUiState.value = GuideSaveUiState.Error(
-                    createResult.exceptionOrNull()?.message ?: "Failed to create guide"
-                )
-                return@launch
-            }
-            val newId = createResult.getOrThrow()
+            try {
+                // Step 1: Create the guide document first (to get a real Firestore ID)
+                val createResult = guideRepository.createGuide(guide)
 
-            // Step 2 — upload images using the real document ID as the storage folder
-            if (newImageUris.isNotEmpty()) {
-                val uploadedUrls = uploadImages(newId, newImageUris)
-                if (uploadedUrls.isNotEmpty()) {
-                    // Step 3 — update the doc's imageUrls field
-                    guideRepository.updateGuide(guide.copy(id = newId, imageUrls = uploadedUrls))
+                if (createResult.isFailure) {
+                    _saveUiState.value = GuideSaveUiState.Error(
+                        createResult.exceptionOrNull()?.message ?: "Failed to create guide"
+                    )
+                    return@launch
                 }
-            }
 
-            _saveUiState.value = GuideSaveUiState.Success(newId)
+                val newGuideId = createResult.getOrNull() ?: ""
+
+                // Step 2: Upload images using the new guide ID
+                val uploadedUrls = uploadImages(newGuideId, newImageUris)
+
+                // Step 3: Update the guide with the image URLs if any were uploaded
+                if (uploadedUrls.isNotEmpty()) {
+                    val guideWithImages = guide.copy(
+                        id = newGuideId,
+                        imageUrls = uploadedUrls
+                    )
+                    guideRepository.updateGuide(guideWithImages)
+                }
+
+                // Step 4: Set success state
+                _saveUiState.value = GuideSaveUiState.Success(newGuideId)
+
+            } catch (e: Exception) {
+                _saveUiState.value = GuideSaveUiState.Error(e.message ?: "Unknown error")
+            }
         }
     }
 
+    fun resetSaveState() {
+        _saveUiState.value = GuideSaveUiState.Idle
+    }
     // =========================================================================
     // UPDATE
     // =========================================================================
@@ -184,7 +205,7 @@ class GuideViewModel(
     // STATE RESETS  (call from DisposableEffect when leaving a screen)
     // =========================================================================
 
-    fun resetSaveState()     { _saveUiState.value   = GuideSaveUiState.Idle }
+
     fun resetDeleteSuccess() { _deleteSuccess.value = false }
     fun resetDetailState()   { _detailUiState.value = GuideDetailUiState.Idle }
 

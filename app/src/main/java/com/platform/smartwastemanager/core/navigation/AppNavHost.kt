@@ -310,7 +310,8 @@ fun AppNavHost(
                 currentUserUid = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() },
                 onSaveSuccess  = { newId ->
-                    navController.navigate(Routes.buildGuideDetail(newId)) {
+                    // Navigate to guides list instead of detail
+                    navController.navigate(Routes.GUIDES) {
                         popUpTo(Routes.GUIDE_EDITOR) { inclusive = true }
                     }
                 }

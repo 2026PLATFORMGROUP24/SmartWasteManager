@@ -24,6 +24,7 @@ import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
+import androidx.compose.material3.ExperimentalMaterial3Api
 
 /**
  * Guide list screen — shows all recycling guides as scrollable cards.
@@ -36,6 +37,8 @@ import kotlinx.coroutines.delay
  * @param onNavigateToEditor   Navigate to the editor in create mode.
  * @param onNavigateToEditorEdit Navigate to the editor in edit mode for the given guide ID.
  */
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GuideListScreen(
     viewModel: GuideViewModel,

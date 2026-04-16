@@ -67,6 +67,14 @@ class HomeViewModel(
                     .collect { list ->
                         _collectionPoints.value = list
 
+                        // Update selected point if it exists in the new list
+                        _selectedPoint.value?.let { currentSelected ->
+                            val updated = list.find { it.id == currentSelected.id }
+                            if (updated != null) {
+                                _selectedPoint.value = updated // This refreshes the marked status
+                            }
+                        }
+
                         // Auto-select first point if none selected
                         if (_selectedPoint.value == null && list.isNotEmpty()) {
                             selectCollectionPoint(list.first())
