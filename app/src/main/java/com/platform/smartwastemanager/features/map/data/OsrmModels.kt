@@ -67,6 +67,7 @@ data class OsrmRouteResponse(
 data class OsrmRoute(
     @SerialName("distance") val distance: Double = 0.0,
     @SerialName("duration") val duration: Double = 0.0,
+    @SerialName("geometry") val geometry: OsrmGeometry = OsrmGeometry(),
     @SerialName("legs")     val legs: List<OsrmLeg> = emptyList()
 )
 

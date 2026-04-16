@@ -36,8 +36,8 @@ import com.platform.smartwastemanager.features.notifications.presentation.Notifi
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementScreen
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
-import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointsScreen
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
+import com.platform.smartwastemanager.features.collectionpoint.presentation.ManageCollectionPointsScreen
 import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
 
 /**
@@ -64,6 +64,8 @@ fun AppNavHost(
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
     val guides             by guideViewModel.guides.collectAsStateWithLifecycle()
+    val selectedZone       by homeViewModel.selectedZone.collectAsStateWithLifecycle()
+    val selectedPoint      by homeViewModel.selectedPoint.collectAsStateWithLifecycle()
 
     val isDriver             = currentUser?.role == UserRole.DRIVER
     val isDriverInDriverView = isDriver && isDriverViewActive
@@ -115,10 +117,10 @@ fun AppNavHost(
                     navController.navigate(Routes.buildGuideDetail(guideId))
                 },
                 onNavigateToZones    = { _, _ -> /* Deprecated - not used in new zone-based system */ },
-                onNavigateToCollectionPointPicker = {
-                    navController.navigate(Routes.COLLECTION_POINT_PICKER)
+                onNavigateToManagePoints = {
+                    navController.navigate(Routes.MANAGE_COLLECTION_POINTS)
                 },
-                onNavigateToZoneManagement = {
+                onNavigateToManageZones = {
                     navController.navigate(Routes.MANAGE_ZONES)
                 },
                 onCalculateRoute = { zoneName, scheduleDayId ->
@@ -143,7 +145,19 @@ fun AppNavHost(
             ManageZonesScreen(
                 viewModel      = routeViewModel,
                 onNavigateBack = { navController.popBackStack() },
-                onCreateZone   = { navController.navigate(Routes.ZONE_MAP_PICKER) }
+                onCreateZone   = { navController.navigate(Routes.ZONE_MAP_PICKER) },
+                selectedZone   = selectedZone,
+                onSelectZone   = { homeViewModel.selectZone(it) }
+            )
+        }
+
+        composable(Routes.MANAGE_COLLECTION_POINTS) {
+            ManageCollectionPointsScreen(
+                viewModel = collectionPointViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToCreate = { navController.navigate(Routes.COLLECTION_POINT_PICKER) },
+                selectedPointId = selectedPoint?.id,
+                onPointSelected = { point -> homeViewModel.selectCollectionPoint(point) }
             )
         }
 
@@ -187,16 +201,12 @@ fun AppNavHost(
         // ======================== COLLECTION POINTS ========================
 
         composable(Routes.COLLECTION_POINTS) {
-            CollectionPointsScreen(
-                viewModel          = collectionPointViewModel,
+            ManageCollectionPointsScreen(
+                viewModel = collectionPointViewModel,
+                onNavigateBack = { navController.popBackStack() },
                 onNavigateToCreate = { navController.navigate(Routes.COLLECTION_POINT_PICKER) },
-                onPointSelected    = { point ->
-                    collectionPointViewModel.selectPoint(point)
-                    // Navigate back to home to show the zone's schedule
-                    navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.HOME) { inclusive = true }
-                    }
-                }
+                selectedPointId = selectedPoint?.id,
+                onPointSelected = { point -> homeViewModel.selectCollectionPoint(point) }
             )
         }
 

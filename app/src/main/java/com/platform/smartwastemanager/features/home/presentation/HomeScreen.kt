@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,8 +35,8 @@ fun HomeScreen(
     onNavigateToManage: () -> Unit,
     onNavigateToGuide: (String) -> Unit,
     onNavigateToZones: (scheduleDayId: String, scheduleDayName: String) -> Unit = { _, _ -> },
-    onNavigateToCollectionPointPicker: () -> Unit,
-    onNavigateToZoneManagement: () -> Unit,
+    onNavigateToManagePoints: () -> Unit,
+    onNavigateToManageZones: () -> Unit,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit,
     isDriverInDriverView: Boolean = false
 ) {
@@ -103,7 +104,7 @@ fun HomeScreen(
                     selectedPoint    = selectedPoint,
                     schedules        = schedules,
                     onSelectPoint    = { viewModel.selectCollectionPoint(it) },
-                    onNavigateToCollectionPointPicker = onNavigateToCollectionPointPicker,
+                    onNavigateToManagePoints = onNavigateToManagePoints,
                     onNavigateToGuide = onNavigateToGuide,
                     onMarkForCollection = { pointId, scheduleDayId ->
                         viewModel.markPointForCollection(pointId, scheduleDayId)
@@ -118,7 +119,7 @@ fun HomeScreen(
                     selectedZone      = selectedZone,
                     schedules         = schedules,
                     onSelectZone      = { viewModel.selectZone(it) },
-                    onNavigateToZoneManagement = onNavigateToZoneManagement,
+                    onNavigateToManageZones = onNavigateToManageZones,
                     onCalculateRoute  = onCalculateRoute
                 )
             }
@@ -133,19 +134,20 @@ private fun UserHomeContent(
     selectedPoint: CollectionPoint?,
     schedules: List<CollectionDay>,
     onSelectPoint: (CollectionPoint) -> Unit,
-    onNavigateToCollectionPointPicker: () -> Unit,
+    onNavigateToManagePoints: () -> Unit,
     onNavigateToGuide: (String) -> Unit,
     onMarkForCollection: (pointId: String, scheduleDayId: String) -> Unit,
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val activePoint = selectedPoint ?: collectionPoints.firstOrNull()
 
     ExposedDropdownMenuBox(
         expanded         = expanded,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedPoint?.name ?: if (collectionPoints.isEmpty()) "No collection points" else "Select collection point",
+            value         = activePoint?.name ?: if (collectionPoints.isEmpty()) "No collection points" else "Select collection point",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("My Collection Point") },
@@ -158,16 +160,20 @@ private fun UserHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            collectionPoints.forEach { point ->
+            activePoint?.let { point ->
                 DropdownMenuItem(
                     text = {
-                        Column {
-                            Text(point.name, fontWeight = FontWeight.Bold)
-                            Text(
-                                point.streetName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(point.name, fontWeight = FontWeight.Bold)
+                                Text(
+                                    point.streetName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     },
                     onClick = {
@@ -175,9 +181,6 @@ private fun UserHomeContent(
                         expanded = false
                     }
                 )
-            }
-
-            if (collectionPoints.isNotEmpty()) {
                 HorizontalDivider()
             }
 
@@ -185,14 +188,14 @@ private fun UserHomeContent(
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Add,
+                            Icons.Default.Settings,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Add New Collection Point",
+                            "Manage Collection Points",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -200,7 +203,7 @@ private fun UserHomeContent(
                 },
                 onClick = {
                     expanded = false
-                    onNavigateToCollectionPointPicker()
+                    onNavigateToManagePoints()
                 }
             )
         }
@@ -208,7 +211,7 @@ private fun UserHomeContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (selectedPoint == null && collectionPoints.isEmpty()) {
+    if (activePoint == null && collectionPoints.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -228,10 +231,14 @@ private fun UserHomeContent(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text  = "Select 'Add New Collection Point' from the dropdown above to get started.",
+                    text  = "You haven't added any collection points yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onNavigateToManagePoints) {
+                    Text("Add Your First Point")
+                }
             }
         }
     } else if (schedules.isEmpty()) {
@@ -426,17 +433,18 @@ private fun DriverHomeContent(
     selectedZone: Zone?,
     schedules: List<CollectionDay>,
     onSelectZone: (Zone) -> Unit,
-    onNavigateToZoneManagement: () -> Unit,
+    onNavigateToManageZones: () -> Unit,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val activeZone = selectedZone ?: zones.firstOrNull()
 
     ExposedDropdownMenuBox(
         expanded         = expanded,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
+            value         = activeZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("Zone") },
@@ -449,17 +457,20 @@ private fun DriverHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            zones.forEach { zone ->
+            activeZone?.let { zone ->
                 DropdownMenuItem(
-                    text    = { Text(zone.name) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Map, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(zone.name, fontWeight = FontWeight.Bold)
+                        }
+                    },
                     onClick = {
                         onSelectZone(zone)
                         expanded = false
                     }
                 )
-            }
-
-            if (zones.isNotEmpty()) {
                 HorizontalDivider()
             }
 
@@ -467,14 +478,14 @@ private fun DriverHomeContent(
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Add,
+                            Icons.Default.Settings,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Add New Zone",
+                            "Manage Zones",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -482,7 +493,7 @@ private fun DriverHomeContent(
                 },
                 onClick = {
                     expanded = false
-                    onNavigateToZoneManagement()
+                    onNavigateToManageZones()
                 }
             )
         }
@@ -490,7 +501,7 @@ private fun DriverHomeContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (selectedZone == null && zones.isEmpty()) {
+    if (activeZone == null && zones.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center

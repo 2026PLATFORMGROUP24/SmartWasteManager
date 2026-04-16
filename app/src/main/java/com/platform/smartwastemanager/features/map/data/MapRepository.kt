@@ -376,6 +376,41 @@ class MapRepository {
         }
     }
 
+    suspend fun getRoadPolylineForOrderedStops(
+        stops: List<RouteStop>,
+        driverLat: Double? = null,
+        driverLng: Double? = null
+    ): List<LatLng> {
+        val hasDriverLocation = driverLat != null && driverLng != null
+        if (stops.isEmpty() || (stops.size == 1 && !hasDriverLocation)) return emptyList()
+
+        val coordsList = buildList {
+            if (hasDriverLocation) add("${driverLng},${driverLat}")
+            addAll(stops.map { "${it.location.longitude},${it.location.latitude}" })
+        }
+        val coords = coordsList.joinToString(";")
+        val approaches = coordsList.indices.joinToString(";") { "curb" }
+
+        return try {
+            val response = osrmService.getRoute(
+                coordinates = coords,
+                steps = false,
+                approaches = approaches
+            )
+            if (response.code != "Ok") return emptyList()
+
+            response.routes.firstOrNull()
+                ?.geometry
+                ?.coordinates
+                ?.mapNotNull { coord ->
+                    // OSRM returns [longitude, latitude], but Google LatLng expects [latitude, longitude].
+                    if (coord.size >= 2) LatLng(coord[1], coord[0]) else null
+                }.orEmpty()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     private fun buildDirectionString(step: OsrmStep): String? {
         val type     = step.maneuver.type
         val modifier = step.maneuver.modifier

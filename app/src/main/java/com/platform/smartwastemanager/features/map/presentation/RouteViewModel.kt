@@ -227,11 +227,18 @@ class RouteViewModel(
                 if (nextIndex >= updatedStops.size) {
                     _activeRouteState.value = ActiveRouteUiState.Completed
                 } else {
-                    val remainingPolyline = buildRemainingPolyline(
+                    val remainingStops = updatedStops.drop(nextIndex).filterNot { it.isCollected }
+                    val remainingPolyline = mapRepository.getRoadPolylineForOrderedStops(
+                        stops = remainingStops,
                         driverLat = driverLat,
-                        driverLng = driverLng,
-                        remainingStops = updatedStops.drop(nextIndex).filterNot { it.isCollected }
-                    )
+                        driverLng = driverLng
+                    ).ifEmpty {
+                        buildRemainingPolyline(
+                            driverLat = driverLat,
+                            driverLng = driverLng,
+                            remainingStops = remainingStops
+                        )
+                    }
                     _activeRouteState.value = ActiveRouteUiState.InProgress(
                         stops             = updatedStops,
                         currentStopIndex  = nextIndex,
