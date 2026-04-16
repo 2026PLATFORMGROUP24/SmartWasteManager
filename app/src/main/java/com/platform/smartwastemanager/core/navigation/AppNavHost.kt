@@ -38,6 +38,8 @@ import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.report.presentation.ScanScreen
 import kotlinx.coroutines.launch
+import com.platform.smartwastemanager.features.notifications.presentation.NotificationScreen
+import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 
 /**
  * Central navigation host for the app.
@@ -57,6 +59,7 @@ fun AppNavHost(
     mapViewModel: MapViewModel,
     routeViewModel: RouteViewModel,
     guideViewModel: GuideViewModel,       // Phase 5
+    notificationViewModel: NotificationViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -343,6 +346,10 @@ fun AppNavHost(
                     }
                 }
             )
+        }
+        // ======================== NOTIFICATIONS (Phase 6 — driver only) ========================
+        composable(Routes.NOTIFICATIONS) {
+            NotificationScreen(viewModel = notificationViewModel)
         }
     }
 }

@@ -8,6 +8,7 @@ import com.platform.smartwastemanager.features.home.data.ScheduleRepository
 import com.platform.smartwastemanager.features.map.data.MapRepository
 import com.platform.smartwastemanager.features.report.data.ReportRepository
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
+import com.platform.smartwastemanager.core.notifications.NotificationRepository
 
 /**
  * AppContainer holds every repository for the lifetime of the app.
@@ -39,4 +40,7 @@ class AppContainer(context: Context) {
 
     // ---- Guides ----
     val guideRepository = GuideRepository()
+
+    // ---- Notifications ----
+    val notificationRepository   = NotificationRepository()
 }

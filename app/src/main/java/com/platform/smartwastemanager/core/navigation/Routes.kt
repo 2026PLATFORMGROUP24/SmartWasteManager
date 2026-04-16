@@ -20,25 +20,17 @@ object Routes {
     const val GUIDE_DETAIL      = "guides/{guideId}"
     const val GUIDE_EDITOR      = "guides/editor"
     const val GUIDE_EDITOR_EDIT = "guides/editor/{guideId}"
+    const val LOCATION_PICKER   = "report/location-picker"
 
-    // ---- Location picker (for waste report form) ----
-    const val LOCATION_PICKER = "report/location-picker"
-
-    // ---- Zones & Routes feature ----
-    // ZoneListScreen: shows zones assigned to a specific schedule day
-    const val ZONE_LIST = "home/zones/{scheduleDayId}/{scheduleDayName}"
-
-    // ZonePickerScreen: lets driver pick from all global zones to assign to a day
-    const val ZONE_PICKER = "home/zones/picker/{scheduleDayId}/{scheduleDayName}"
-
-    // ManageZonesScreen: global zone CRUD (create/delete zones, no day association)
-    const val MANAGE_ZONES = "home/zones/manage"
-
-    // ZoneMapPickerScreen: map UI for creating a new global zone
+    // ---- Zones & Routes ----
+    const val ZONE_LIST       = "home/zones/{scheduleDayId}/{scheduleDayName}"
+    const val ZONE_PICKER     = "home/zones/picker/{scheduleDayId}/{scheduleDayName}"
+    const val MANAGE_ZONES    = "home/zones/manage"
     const val ZONE_MAP_PICKER = "home/zones/map-picker"
+    const val ACTIVE_ROUTE    = "home/zones/active-route/{zoneName}"
 
-    // ActiveRouteScreen: turn-by-turn driving route
-    const val ACTIVE_ROUTE = "home/zones/active-route/{zoneName}"
+    // ---- Notifications (Phase 6 — driver only) ----
+    const val NOTIFICATIONS = "notifications"
 
     // ---- Helpers ----
     fun buildGuideDetail(guideId: String) = "guides/$guideId"

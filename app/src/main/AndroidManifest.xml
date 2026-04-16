@@ -50,7 +50,7 @@
         <!-- Restrict it to: Android apps > your package name + SHA-1 fingerprint -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDjH_zjLOEgFJEagmmzKZ8w3AhbddKYZ4c" />
+            android:value="AIzaSyC3n2zVvsweAusKQ2Jsbv7jqh8YAHx9I3c" />
 
     </application>
 
