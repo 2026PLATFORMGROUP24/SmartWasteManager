@@ -74,13 +74,13 @@ fun SmartWasteManagerAppContent() {
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(app.container.authRepository)
     )
-// Update HomeViewModel factory call (around line 77-81):
+
     val homeViewModel: HomeViewModel = viewModel(
         factory = HomeViewModel.factory(
             app.container.scheduleRepository,
             app.container.viewToggleRepository,
-            app.container.collectionPointRepository,  // ADD
-            app.container.mapRepository                // ADD
+            app.container.collectionPointRepository,
+            app.container.mapRepository
         )
     )
     val reportViewModel: ReportViewModel = viewModel(

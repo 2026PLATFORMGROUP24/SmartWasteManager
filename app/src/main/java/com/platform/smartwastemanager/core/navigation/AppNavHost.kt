@@ -1,8 +1,12 @@
 package com.platform.smartwastemanager.core.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -20,7 +24,6 @@ import com.platform.smartwastemanager.features.guide.presentation.GuideDetailScr
 import com.platform.smartwastemanager.features.guide.presentation.GuideEditorScreen
 import com.platform.smartwastemanager.features.guide.presentation.GuideListScreen
 import com.platform.smartwastemanager.features.guide.presentation.GuideViewModel
-import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.home.presentation.HomeScreen
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.home.presentation.ScheduleManagementScreen
@@ -29,9 +32,6 @@ import com.platform.smartwastemanager.features.map.presentation.ManageZonesScree
 import com.platform.smartwastemanager.features.map.presentation.MapScreen
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
-import com.platform.smartwastemanager.features.map.presentation.ZoneListScreen
-import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
-import com.platform.smartwastemanager.features.map.presentation.ZonePickerScreen
 import com.platform.smartwastemanager.features.report.presentation.LocationPickerMapScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
@@ -113,7 +113,6 @@ fun AppNavHost(
 
         // ======================== HOME ========================
 
-        // Update HomeScreen composable call (around line 116-129):
         composable(Routes.HOME) {
             HomeScreen(
                 viewModel            = homeViewModel,
@@ -122,17 +121,15 @@ fun AppNavHost(
                 onNavigateToGuide    = { guideId ->
                     navController.navigate(Routes.buildGuideDetail(guideId))
                 },
-                onNavigateToZones    = { scheduleDayId, scheduleDayName ->
-                    navController.navigate(Routes.buildZoneList(scheduleDayId, scheduleDayName))
-                },
+                onNavigateToZones    = { _, _ -> /* Deprecated - not used in new zone-based system */ },
                 onNavigateToCollectionPointPicker = {
                     navController.navigate(Routes.COLLECTION_POINT_PICKER)
                 },
                 onNavigateToZoneManagement = {
                     navController.navigate(Routes.MANAGE_ZONES)
                 },
-                onCalculateRoute = { zoneId, scheduleDayId ->
-                    // TODO: Implement route calculation based on marked points
+                onCalculateRoute = { _, _ ->
+                    // TODO: Implement route calculation based on marked collection points
                 },
                 isDriverInDriverView = isDriverInDriverView
             )
@@ -147,68 +144,7 @@ fun AppNavHost(
             )
         }
 
-        // ======================== ZONES ========================
-
-        composable(
-            route     = Routes.ZONE_LIST,
-            arguments = listOf(
-                navArgument("scheduleDayId")   { type = NavType.StringType },
-                navArgument("scheduleDayName") { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
-            val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
-
-            val schedule = schedules.find { it.id == scheduleDayId }
-                ?: CollectionDay(id = scheduleDayId, dayOfWeek = scheduleDayName)
-
-            val zoneListScope = rememberCoroutineScope()
-            val context       = navController.context
-
-            ZoneListScreen(
-                viewModel      = routeViewModel,
-                schedule       = schedule,
-                onNavigateBack = { navController.popBackStack() },
-                onAssignZone   = {
-                    navController.navigate(
-                        Routes.buildZonePicker(scheduleDayId, scheduleDayName)
-                    )
-                },
-                onManageZones  = { navController.navigate(Routes.MANAGE_ZONES) },
-                onLoadRoute    = { zone ->
-                    zoneListScope.launch {
-                        val gp = try { LocationHelper.getCurrentLocation(context) }
-                        catch (e: Exception) { null }
-                        routeViewModel.loadRouteForZone(
-                            zone      = zone,
-                            driverLat = gp?.latitude  ?: 0.0,
-                            driverLng = gp?.longitude ?: 0.0
-                        )
-                        navController.navigate(Routes.buildActiveRoute(zone.name))
-                    }
-                }
-            )
-        }
-
-        composable(
-            route     = Routes.ZONE_PICKER,
-            arguments = listOf(
-                navArgument("scheduleDayId")   { type = NavType.StringType },
-                navArgument("scheduleDayName") { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val scheduleDayId      = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
-            val scheduleDayName    = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
-            val alreadyAssignedIds = schedules.find { it.id == scheduleDayId }?.zoneIds
-                ?: emptyList()
-
-            ZonePickerScreen(
-                viewModel          = routeViewModel,
-                alreadyAssignedIds = alreadyAssignedIds,
-                scheduleDayName    = scheduleDayName,
-                onNavigateBack     = { navController.popBackStack() }
-            )
-        }
+        // ======================== ZONES (OLD ROUTES - Keep for backward compatibility) ========================
 
         composable(Routes.MANAGE_ZONES) {
             ManageZonesScreen(
@@ -257,8 +193,10 @@ fun AppNavHost(
                 onNavigateToCreate = { navController.navigate(Routes.COLLECTION_POINT_PICKER) },
                 onPointSelected    = { point ->
                     collectionPointViewModel.selectPoint(point)
-                    // Navigate to a schedule view filtered by this point's zone
-                    // TODO: implement filtered schedule view
+                    // Navigate back to home to show the zone's schedule
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
                 }
             )
         }

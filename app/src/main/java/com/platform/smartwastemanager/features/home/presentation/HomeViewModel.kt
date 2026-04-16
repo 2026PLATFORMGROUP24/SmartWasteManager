@@ -177,18 +177,31 @@ class HomeViewModel(
         }
     }
 
+    // REPLACE the createSchedule function with:
     fun createSchedule(
-        zoneId: String,
         dayOfWeek: String,
         wasteCategories: List<String>,
         collectionTimeRange: String?,
         linkedGuideId: String?,
         driverUid: String
     ) {
+        // Get the currently selected zone ID
+        val zoneId = if (_isDriverViewActive.value) {
+            _selectedZone.value?.id ?: ""
+        } else {
+            _selectedPoint.value?.zoneId ?: ""
+        }
+
+        if (zoneId.isBlank()) {
+            _uiState.value = HomeUiState.Error("No zone selected")
+            return
+        }
+
         if (dayOfWeek.isBlank() || wasteCategories.isEmpty()) {
             _uiState.value = HomeUiState.Error("Please select a day and at least one waste category")
             return
         }
+
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
             val result = scheduleRepository.createSchedule(
@@ -205,22 +218,6 @@ class HomeViewModel(
                 HomeUiState.Success("Schedule created successfully")
             else
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to create schedule")
-        }
-    }
-
-    fun updateSchedule(collectionDay: CollectionDay) {
-        viewModelScope.launch {
-            _uiState.value = HomeUiState.Loading
-            val result = scheduleRepository.updateSchedule(
-                collectionDay.copy(
-                    linkedGuideId = collectionDay.linkedGuideId?.ifBlank { null },
-                    collectionTimeRange = collectionDay.collectionTimeRange?.ifBlank { null }
-                )
-            )
-            _uiState.value = if (result.isSuccess)
-                HomeUiState.Success("Schedule updated successfully")
-            else
-                HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to update schedule")
         }
     }
 
