@@ -127,13 +127,16 @@ class GuideViewModel(
      */
     fun createGuide(guide: RecyclingGuide, newImageUris: List<Uri>) {
         viewModelScope.launch {
+            android.util.Log.d("GuideViewModel", "createGuide started")
             _saveUiState.value = GuideSaveUiState.Saving
 
             try {
-                // Step 1: Create the guide document first (to get a real Firestore ID)
+                // Step 1: Create the guide document first
+                android.util.Log.d("GuideViewModel", "Creating guide document...")
                 val createResult = guideRepository.createGuide(guide)
 
                 if (createResult.isFailure) {
+                    android.util.Log.e("GuideViewModel", "Failed to create guide: ${createResult.exceptionOrNull()?.message}")
                     _saveUiState.value = GuideSaveUiState.Error(
                         createResult.exceptionOrNull()?.message ?: "Failed to create guide"
                     )
@@ -141,23 +144,35 @@ class GuideViewModel(
                 }
 
                 val newGuideId = createResult.getOrNull() ?: ""
+                android.util.Log.d("GuideViewModel", "Guide created with ID: $newGuideId")
 
-                // Step 2: Upload images using the new guide ID
-                val uploadedUrls = uploadImages(newGuideId, newImageUris)
+                // Step 2: Upload images if any
+                if (newImageUris.isNotEmpty()) {
+                    android.util.Log.d("GuideViewModel", "Uploading ${newImageUris.size} images...")
+                    val uploadedUrls = uploadImages(newGuideId, newImageUris)
+                    android.util.Log.d("GuideViewModel", "Uploaded ${uploadedUrls.size} images")
 
-                // Step 3: Update the guide with the image URLs if any were uploaded
-                if (uploadedUrls.isNotEmpty()) {
-                    val guideWithImages = guide.copy(
-                        id = newGuideId,
-                        imageUrls = uploadedUrls
-                    )
-                    guideRepository.updateGuide(guideWithImages)
+                    // Step 3: Update guide with image URLs
+                    if (uploadedUrls.isNotEmpty()) {
+                        android.util.Log.d("GuideViewModel", "Updating guide with image URLs...")
+                        val guideWithImages = guide.copy(
+                            id = newGuideId,
+                            imageUrls = uploadedUrls
+                        )
+                        guideRepository.updateGuide(guideWithImages)
+                        android.util.Log.d("GuideViewModel", "Guide updated with images")
+                    }
+                } else {
+                    android.util.Log.d("GuideViewModel", "No images to upload")
                 }
 
                 // Step 4: Set success state
+                android.util.Log.d("GuideViewModel", "Setting success state with ID: $newGuideId")
                 _saveUiState.value = GuideSaveUiState.Success(newGuideId)
+                android.util.Log.d("GuideViewModel", "Save state is now: ${_saveUiState.value}")
 
             } catch (e: Exception) {
+                android.util.Log.e("GuideViewModel", "Exception in createGuide: ${e.message}", e)
                 _saveUiState.value = GuideSaveUiState.Error(e.message ?: "Unknown error")
             }
         }

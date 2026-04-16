@@ -87,19 +87,18 @@ fun GuideEditorScreen(
         }
     }
 
-    // Navigate away once the save operation completes successfully
+// Navigate away once the save operation completes successfully
     LaunchedEffect(saveState) {
-        when (val state = saveState) {
-            is GuideSaveUiState.Success -> {
-                val savedId = state.guideId
-                // Clean up before navigating
-                viewModel.resetSaveState()
-                viewModel.resetDetailState()
-                // Navigate with a small delay to ensure state is cleared
-                kotlinx.coroutines.delay(100)
-                onSaveSuccess(savedId)
-            }
-            else -> { /* Do nothing */ }
+        android.util.Log.d("GuideEditor", "LaunchedEffect triggered with state: $saveState")
+
+        if (saveState is GuideSaveUiState.Success) {
+            val savedId = (saveState as GuideSaveUiState.Success).guideId
+            android.util.Log.d("GuideEditor", "Success detected! Navigating with ID: $savedId")
+            onSaveSuccess(savedId)
+            // Reset state AFTER navigation callback completes
+            kotlinx.coroutines.delay(100)
+            viewModel.resetSaveState()
+            viewModel.resetDetailState()
         }
     }
 
