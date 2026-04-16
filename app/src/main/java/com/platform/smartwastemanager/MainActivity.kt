@@ -111,8 +111,12 @@ fun SmartWasteManagerAppContent() {
             app.container.notificationRepository  // ADD THIS
         )
     )
+// UPDATE the CollectionPointViewModel factory call (around line 102):
     val collectionPointViewModel: CollectionPointViewModel = viewModel(
-        factory = CollectionPointViewModel.factory(app.container.collectionPointRepository)
+        factory = CollectionPointViewModel.factory(
+            app.container.collectionPointRepository,
+            app.container.mapRepository  // ADD this parameter
+        )
     )
 
     // =========================================================================

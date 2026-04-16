@@ -21,15 +21,6 @@ import com.platform.smartwastemanager.features.collectionpoint.domain.Collection
 import kotlinx.coroutines.launch
 import java.util.*
 
-/**
- * Map picker for creating a new collection point.
- *
- * User:
- * 1. Picks a location on the map by dragging.
- * 2. Names the collection point (e.g. "Home", "Office").
- * 3. System auto-assigns the zone based on the location (finds which zone polygon contains the point).
- * 4. Saves the collection point.
- */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun CollectionPointPickerScreen(
@@ -38,6 +29,10 @@ fun CollectionPointPickerScreen(
 ) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
+
+    // Get all zones from the ViewModel
+    val allZones by viewModel.allZones.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -51,12 +46,14 @@ fun CollectionPointPickerScreen(
     var streetName by remember { mutableStateOf("") }
     var pointName by remember { mutableStateOf("") }
 
-    // Camera state
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(LatLng(-25.7479, 28.2293), 12f) // Pretoria default
+        position = CameraPosition.fromLatLngZoom(LatLng(-25.7479, 28.2293), 12f)
     }
 
+    // Load zones on first launch
     LaunchedEffect(Unit) {
+        viewModel.loadAllZones()
+
         if (locationPermissions.allPermissionsGranted) {
             try {
                 val loc = LocationHelper.getCurrentLocation(context)
@@ -64,7 +61,6 @@ fun CollectionPointPickerScreen(
                 selectedLocation = currentLocation
                 cameraPositionState.position = CameraPosition.fromLatLngZoom(currentLocation!!, 15f)
 
-                // Reverse geocode
                 val geocoder = Geocoder(context, Locale.getDefault())
                 val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
                 streetName = addresses?.firstOrNull()?.getAddressLine(0) ?: "Unknown Location"
@@ -74,6 +70,11 @@ fun CollectionPointPickerScreen(
         } else {
             locationPermissions.launchMultiplePermissionRequest()
         }
+    }
+
+    // Show UI state messages
+    LaunchedEffect(uiState) {
+        // Handle UI state if needed
     }
 
     Scaffold(
@@ -101,6 +102,25 @@ fun CollectionPointPickerScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    // Show zone assignment status
+                    if (selectedLocation != null && allZones.isNotEmpty()) {
+                        val assignedZone = findZoneForLocation(selectedLocation!!, allZones)
+                        if (assignedZone != null) {
+                            Text(
+                                text  = "🗺️ Zone: ${assignedZone.name}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                text  = "⚠️ This location is not within any zone. Ask a driver to create a zone here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -114,13 +134,14 @@ fun CollectionPointPickerScreen(
                         Button(
                             onClick  = {
                                 if (pointName.isNotBlank() && selectedLocation != null) {
-                                    // TODO: Determine zoneId based on selectedLocation
-                                    // For now, leave empty — driver will assign zones separately
+                                    // Find which zone contains this location
+                                    val assignedZone = findZoneForLocation(selectedLocation!!, allZones)
+
                                     val newPoint = CollectionPoint(
                                         name       = pointName,
                                         location   = GeoPoint(selectedLocation!!.latitude, selectedLocation!!.longitude),
                                         streetName = streetName,
-                                        zoneId     = "" // Will be assigned by system/driver
+                                        zoneId     = assignedZone?.id ?: "" // Assign zone based on location
                                     )
                                     viewModel.createCollectionPoint(newPoint)
                                     onNavigateBack()
@@ -159,6 +180,17 @@ fun CollectionPointPickerScreen(
                     }
                 }
             ) {
+                // Draw all zone circles on the map
+                allZones.forEach { zone ->
+                    Circle(
+                        center = LatLng(zone.centerLat, zone.centerLng),
+                        radius = zone.radiusMeters,
+                        strokeColor = androidx.compose.ui.graphics.Color.Blue.copy(alpha = 0.5f),
+                        fillColor = androidx.compose.ui.graphics.Color.Blue.copy(alpha = 0.1f),
+                        strokeWidth = 2f
+                    )
+                }
+
                 selectedLocation?.let { loc ->
                     Marker(
                         state = MarkerState(position = loc),
@@ -167,7 +199,6 @@ fun CollectionPointPickerScreen(
                 }
             }
 
-            // Instruction hint
             Surface(
                 modifier        = Modifier
                     .align(Alignment.TopCenter)
@@ -185,4 +216,37 @@ fun CollectionPointPickerScreen(
             }
         }
     }
+}
+
+/**
+ * Finds which zone contains the given location.
+ * Returns null if the location is not within any zone.
+ */
+private fun findZoneForLocation(
+    location: LatLng,
+    zones: List<com.platform.smartwastemanager.features.map.domain.Zone>
+): com.platform.smartwastemanager.features.map.domain.Zone? {
+    return zones.find { zone ->
+        val distance = haversineDistance(
+            location.latitude, location.longitude,
+            zone.centerLat, zone.centerLng
+        )
+        distance <= zone.radiusMeters
+    }
+}
+
+/**
+ * Calculates haversine distance in meters between two GPS points.
+ */
+private fun haversineDistance(
+    lat1: Double, lng1: Double,
+    lat2: Double, lng2: Double
+): Double {
+    val r = 6371000.0 // Earth radius in meters
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLng = Math.toRadians(lng2 - lng1)
+    val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }

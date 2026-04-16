@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.platform.smartwastemanager.features.collectionpoint.data.CollectionPointRepository
 import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
+import com.platform.smartwastemanager.features.map.data.MapRepository
+import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +15,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 class CollectionPointViewModel(
-    private val repository: CollectionPointRepository
+    private val repository: CollectionPointRepository,
+    private val mapRepository: MapRepository
 ) : ViewModel() {
 
     private val _collectionPoints = MutableStateFlow<List<CollectionPoint>>(emptyList())
@@ -21,6 +24,9 @@ class CollectionPointViewModel(
 
     private val _selectedPoint = MutableStateFlow<CollectionPoint?>(null)
     val selectedPoint: StateFlow<CollectionPoint?> = _selectedPoint.asStateFlow()
+
+    private val _allZones = MutableStateFlow<List<Zone>>(emptyList())
+    val allZones: StateFlow<List<Zone>> = _allZones.asStateFlow()
 
     private val _uiState = MutableStateFlow<CollectionPointUiState>(CollectionPointUiState.Idle)
     val uiState: StateFlow<CollectionPointUiState> = _uiState.asStateFlow()
@@ -31,6 +37,14 @@ class CollectionPointViewModel(
         loadCurrentUserPoints()
     }
 
+    fun loadAllZones() {
+        viewModelScope.launch {
+            mapRepository.getAllZones().collect { zones ->
+                _allZones.value = zones
+            }
+        }
+    }
+
     fun loadCurrentUserPoints() {
         pointsJob?.cancel()
         pointsJob = viewModelScope.launch {
@@ -39,7 +53,7 @@ class CollectionPointViewModel(
                     .catch { _ ->
                         if (_collectionPoints.value.isEmpty()) {
                             _uiState.value = CollectionPointUiState.Error(
-                                "Could not load collection points. Check your connection."
+                                "Could not load collection points."
                             )
                         }
                         emit(emptyList())
@@ -53,7 +67,7 @@ class CollectionPointViewModel(
             } catch (_: Exception) {
                 if (_collectionPoints.value.isEmpty()) {
                     _uiState.value = CollectionPointUiState.Error(
-                        "Could not load collection points. Check your connection."
+                        "Could not load collection points."
                     )
                 }
             }
@@ -75,37 +89,6 @@ class CollectionPointViewModel(
         }
     }
 
-    fun updateCollectionPoint(point: CollectionPoint) {
-        viewModelScope.launch {
-            _uiState.value = CollectionPointUiState.Loading
-            val result = repository.updateCollectionPoint(point)
-            _uiState.value = if (result.isSuccess)
-                CollectionPointUiState.Success("Collection point updated successfully")
-            else
-                CollectionPointUiState.Error(result.exceptionOrNull()?.message ?: "Failed to update collection point")
-        }
-    }
-
-    fun markForCollectionDay(pointId: String, scheduleDayId: String) {
-        viewModelScope.launch {
-            val result = repository.markForCollectionDay(pointId, scheduleDayId)
-            _uiState.value = if (result.isSuccess)
-                CollectionPointUiState.Success("Marked for collection")
-            else
-                CollectionPointUiState.Error(result.exceptionOrNull()?.message ?: "Failed to mark for collection")
-        }
-    }
-
-    fun unmarkFromCollectionDay(pointId: String, scheduleDayId: String) {
-        viewModelScope.launch {
-            val result = repository.unmarkFromCollectionDay(pointId, scheduleDayId)
-            _uiState.value = if (result.isSuccess)
-                CollectionPointUiState.Success("Unmarked from collection")
-            else
-                CollectionPointUiState.Error(result.exceptionOrNull()?.message ?: "Failed to unmark from collection")
-        }
-    }
-
     fun deleteCollectionPoint(pointId: String) {
         viewModelScope.launch {
             _uiState.value = CollectionPointUiState.Loading
@@ -122,11 +105,14 @@ class CollectionPointViewModel(
     }
 
     companion object {
-        fun factory(repository: CollectionPointRepository): ViewModelProvider.Factory {
+        fun factory(
+            repository: CollectionPointRepository,
+            mapRepository: MapRepository
+        ): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return CollectionPointViewModel(repository) as T
+                    return CollectionPointViewModel(repository, mapRepository) as T
                 }
             }
         }
