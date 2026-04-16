@@ -50,6 +50,7 @@ class HomeViewModel(
 
     init {
         loadToggleState()
+        observeViewToggle()
         loadCollectionPoints()
         loadZones()
     }
@@ -263,6 +264,23 @@ class HomeViewModel(
                 }
             } catch (_: Exception) {
                 _isDriverViewActive.value = true
+            }
+        }
+    }
+
+    private fun observeViewToggle() {
+        viewModelScope.launch {
+            isDriverViewActive.collect { isDriverView ->
+                val zoneId = if (isDriverView) {
+                    _selectedZone.value?.id
+                } else {
+                    _selectedPoint.value?.zoneId
+                }
+
+                _schedules.value = emptyList()
+                if (!zoneId.isNullOrBlank()) {
+                    loadSchedulesForZone(zoneId)
+                }
             }
         }
     }

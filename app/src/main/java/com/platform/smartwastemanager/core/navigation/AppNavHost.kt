@@ -121,8 +121,8 @@ fun AppNavHost(
                 onNavigateToZoneManagement = {
                     navController.navigate(Routes.MANAGE_ZONES)
                 },
-                onCalculateRoute = { _, _ ->
-                    // TODO: Implement route calculation based on marked collection points
+                onCalculateRoute = { zoneName, _ ->
+                    navController.navigate(Routes.buildActiveRoute(zoneName))
                 },
                 isDriverInDriverView = isDriverInDriverView
             )
