@@ -277,11 +277,9 @@ class HomeViewModel(
                     _selectedPoint.value?.zoneId
                 }
 
+                _schedules.value = emptyList()
                 if (!zoneId.isNullOrBlank()) {
-                    _schedules.value = emptyList()
                     loadSchedulesForZone(zoneId)
-                } else {
-                    _schedules.value = emptyList()
                 }
             }
         }
