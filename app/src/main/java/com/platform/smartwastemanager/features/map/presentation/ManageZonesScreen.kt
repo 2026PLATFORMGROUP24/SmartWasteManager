@@ -44,6 +44,7 @@ fun ManageZonesScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var zoneToDelete by remember { mutableStateOf<Zone?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(actionState) {
         when (actionState) {
@@ -125,6 +126,17 @@ fun ManageZonesScreen(
                     )
                 }
             }
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Search zones") },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
             // ---- Content ----
             when (val state = allZonesState) {
@@ -142,7 +154,13 @@ fun ManageZonesScreen(
                 }
 
                 is AllZonesUiState.Success -> {
-                    if (state.zones.isEmpty()) {
+                    val filteredZones = if (searchQuery.isBlank()) {
+                        state.zones
+                    } else {
+                        state.zones.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                    }
+
+                    if (filteredZones.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -158,12 +176,16 @@ fun ManageZonesScreen(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    "No zones created yet.",
+                                    if (state.zones.isEmpty()) "No zones created yet." else "No zones match your search.",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    "Tap 'Create Zone' to draw your first collection area.",
+                                    if (state.zones.isEmpty()) {
+                                        "Tap 'Create Zone' to draw your first collection area."
+                                    } else {
+                                        "Try a different search term."
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -174,7 +196,7 @@ fun ManageZonesScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding      = PaddingValues(bottom = 88.dp)
                         ) {
-                            items(state.zones, key = { it.id }) { zone ->
+                            items(filteredZones, key = { it.id }) { zone ->
                                 GlobalZoneCard(
                                     zone          = zone,
                                     onDeleteClick = { zoneToDelete = zone }

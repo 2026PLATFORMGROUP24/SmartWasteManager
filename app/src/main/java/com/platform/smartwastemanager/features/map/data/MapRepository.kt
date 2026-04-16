@@ -1,6 +1,7 @@
 package com.platform.smartwastemanager.features.map.data
 
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.ktx.firestore
@@ -66,7 +67,7 @@ class MapRepository {
 
     suspend fun dismissReport(reportId: String) {
         firestore.collection("waste_reports").document(reportId)
-            .update("status", "dismissed").await()
+            .delete().await()
     }
 
     // =========================================================================
@@ -145,6 +146,12 @@ class MapRepository {
     }
 
     suspend fun deleteZone(zoneId: String) {
+        val scheduleDocs = firestore.collection(Constants.COLLECTION_SCHEDULES)
+            .whereEqualTo("zoneId", zoneId)
+            .get()
+            .await()
+            .documents
+        scheduleDocs.forEach { it.reference.delete().await() }
         firestore.collection("route_zones").document(zoneId).delete().await()
     }
 
@@ -403,7 +410,14 @@ class MapRepository {
 
     suspend fun collectStop(reportId: String) {
         firestore.collection("waste_reports").document(reportId)
-            .update("status", "dismissed").await()
+            .delete().await()
+    }
+
+    suspend fun unmarkCollectionPointFromDay(pointId: String, scheduleDayId: String) {
+        if (scheduleDayId.isBlank()) return
+        firestore.collection("collection_points").document(pointId)
+            .update("markedForCollectionDays", FieldValue.arrayRemove(scheduleDayId))
+            .await()
     }
 
     private fun haversineDistanceMeters(

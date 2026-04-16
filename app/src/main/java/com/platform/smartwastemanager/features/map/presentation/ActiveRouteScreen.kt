@@ -716,13 +716,18 @@ private fun RouteMapWithStops(
                 width    = 10f,
                 geodesic = true
             )
-        } else if (stops.size >= 2) {
+        } else {
+            val remainingPoints = stops
+                .filterNot { it.isCollected }
+                .map { LatLng(it.location.latitude, it.location.longitude) }
+            if (remainingPoints.size >= 2) {
             Polyline(
-                points   = stops.map { LatLng(it.location.latitude, it.location.longitude) },
+                    points   = remainingPoints,
                 color    = Color(0xFF1565C0),
                 width    = 8f,
                 geodesic = true
             )
+            }
         }
 
         stops.forEachIndexed { index, stop ->

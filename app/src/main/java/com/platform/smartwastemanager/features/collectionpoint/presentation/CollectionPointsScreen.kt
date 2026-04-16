@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,8 +34,19 @@ fun CollectionPointsScreen(
 ) {
     val collectionPoints by viewModel.collectionPoints.collectAsStateWithLifecycle()
     val uiState          by viewModel.uiState.collectAsStateWithLifecycle()
+    var searchQuery by remember { mutableStateOf("") }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val filteredPoints = remember(collectionPoints, searchQuery) {
+        if (searchQuery.isBlank()) {
+            collectionPoints
+        } else {
+            collectionPoints.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                        it.streetName.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
 
     LaunchedEffect(uiState) {
         when (uiState) {
@@ -78,13 +90,29 @@ fun CollectionPointsScreen(
                 modifier   = Modifier.padding(top = 16.dp, bottom = 8.dp)
             )
 
-            if (collectionPoints.isEmpty()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Search collection points") },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (filteredPoints.isEmpty()) {
                 Box(
                     modifier         = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text  = "No collection points yet.\nTap + to create your first one.",
+                        text  = if (collectionPoints.isEmpty()) {
+                            "No collection points yet.\nTap + to create your first one."
+                        } else {
+                            "No collection points match your search."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -94,7 +122,7 @@ fun CollectionPointsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding      = PaddingValues(bottom = 88.dp)
                 ) {
-                    items(collectionPoints, key = { it.id }) { point ->
+                    items(filteredPoints, key = { it.id }) { point ->
                         CollectionPointCard(
                             point    = point,
                             onSelect = { onPointSelected(point) },

@@ -14,7 +14,7 @@ import kotlinx.coroutines.tasks.await
  * Handles all Firestore operations for waste_reports collection.
  * - submitReport: adds a new document
  * - getPendingReports: live stream of all "pending" reports
- * - dismissReport: sets a report's status to "dismissed"
+ * - dismissReport: permanently deletes a report document
  */
 class ReportRepository {
 
@@ -99,13 +99,13 @@ class ReportRepository {
     }
 
     /**
-     * Updates a report's status to "dismissed".
-     * Called by drivers to remove a pin from the map.
+     * Permanently deletes a report from Firestore.
+     * Called by drivers to remove a pin from the map and route results.
      */
     suspend fun dismissReport(reportId: String): Result<Unit> {
         return try {
             collection.document(reportId)
-                .update(Constants.FIELD_STATUS, Constants.FIELD_STATUS_DISMISSED)
+                .delete()
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {
