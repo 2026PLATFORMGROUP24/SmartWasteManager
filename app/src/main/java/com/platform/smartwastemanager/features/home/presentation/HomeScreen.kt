@@ -32,7 +32,7 @@ fun HomeScreen(
     onNavigateToZones: (scheduleDayId: String, scheduleDayName: String) -> Unit = { _, _ -> },
     onNavigateToCollectionPointPicker: () -> Unit,
     onNavigateToZoneManagement: () -> Unit,
-    onCalculateRoute: (zoneId: String, scheduleDayId: String) -> Unit,
+    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit,
     isDriverInDriverView: Boolean = false
 ) {
     val collectionPoints   by viewModel.collectionPoints.collectAsStateWithLifecycle()
@@ -355,7 +355,7 @@ private fun DriverHomeContent(
     schedules: List<CollectionDay>,
     onSelectZone: (Zone) -> Unit,
     onNavigateToZoneManagement: () -> Unit,
-    onCalculateRoute: (zoneId: String, scheduleDayId: String) -> Unit
+    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -471,7 +471,8 @@ private fun DriverHomeContent(
             items(schedules, key = { it.id }) { schedule ->
                 DriverScheduleCard(
                     schedule         = schedule,
-                    onCalculateRoute = { onCalculateRoute(schedule.zoneId, schedule.id) }
+                    selectedZone     = selectedZone,
+                    onCalculateRoute = onCalculateRoute
                 )
             }
         }
@@ -482,12 +483,17 @@ private fun DriverHomeContent(
 @Composable
 private fun DriverScheduleCard(
     schedule: CollectionDay,
-    onCalculateRoute: () -> Unit
+    selectedZone: Zone?,
+    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
     Card(
         modifier  = Modifier
             .fillMaxWidth()
-            .clickable { onCalculateRoute() },
+            .clickable(enabled = selectedZone != null) {
+                selectedZone?.let { zone ->
+                    onCalculateRoute(zone.name, schedule.id)
+                }
+            },
         colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
