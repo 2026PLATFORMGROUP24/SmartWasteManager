@@ -18,10 +18,16 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Announcements screen.
+ * Announcements screen — persistent announcement list.
  *
- * User view:   Read-only list of announcements sorted by date (newest first).
- * Driver view: Same list + FAB to create new announcements + delete button on each card.
+ * ALL users can view announcements (sorted by date, newest first).
+ * DRIVERS (in driver view) can create and delete announcements.
+ *
+ * When a driver creates an announcement:
+ * 1. Announcement is saved to Firestore (persistent)
+ * 2. Push notification is sent to ALL users via FCM (immediate alert)
+ *
+ * This combines persistent storage (like guides) with push delivery (like notifications).
  */
 @Composable
 fun AnnouncementScreen(
@@ -54,6 +60,7 @@ fun AnnouncementScreen(
         CreateAnnouncementDialog(
             onDismiss = { showCreateDialog = false },
             onCreate  = { title, message ->
+                // This will save to Firestore AND send push notification
                 viewModel.createAnnouncement(title, message, currentUserUid)
                 showCreateDialog = false
             }
@@ -90,16 +97,33 @@ fun AnnouncementScreen(
                 modifier   = Modifier.padding(top = 16.dp, bottom = 8.dp)
             )
 
+            Text(
+                text  = if (isDriverInDriverView)
+                    "Create announcements to notify all users. They will receive a push notification and the announcement will be saved here."
+                else
+                    "View important announcements from waste collection management.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
             if (announcements.isEmpty()) {
                 Box(
                     modifier         = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text  = "No announcements yet.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text  = "📢",
+                            style = MaterialTheme.typography.displayMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text  = "No announcements yet.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -148,8 +172,10 @@ private fun AnnouncementCard(
 
     Card(
         modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -157,19 +183,23 @@ private fun AnnouncementCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment     = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text       = announcement.title,
-                        style      = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color      = MaterialTheme.colorScheme.onSurfaceVariant
+                        text  = "📢",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(end = 8.dp)
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text  = announcement.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    )
+                    Column {
+                        Text(
+                            text       = announcement.title,
+                            style      = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color      = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
 
                 // Driver view: delete button
@@ -186,12 +216,20 @@ private fun AnnouncementCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            Text(
+                text  = announcement.message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Date label
             val dateFormat = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
             Text(
                 text  = dateFormat.format(announcement.createdAt.toDate()),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
             )
         }
     }
@@ -210,17 +248,23 @@ private fun CreateAnnouncementDialog(
         title            = { Text("New Announcement") },
         text             = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text  = "This will be saved as a persistent announcement AND sent as a push notification to all users.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value        = title,
                     onValueChange = { title = it },
-                    label         = { Text("Title") },
+                    label         = { Text("Title *") },
                     singleLine    = true,
                     modifier      = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value        = message,
                     onValueChange = { message = it },
-                    label         = { Text("Message") },
+                    label         = { Text("Message *") },
                     minLines      = 3,
                     maxLines      = 6,
                     modifier      = Modifier.fillMaxWidth()
@@ -232,7 +276,7 @@ private fun CreateAnnouncementDialog(
                 onClick = { onCreate(title, message) },
                 enabled = title.isNotBlank() && message.isNotBlank()
             ) {
-                Text("Create")
+                Text("Send & Save")
             }
         },
         dismissButton = {

@@ -101,8 +101,12 @@ fun SmartWasteManagerAppContent() {
     val notificationViewModel: NotificationViewModel = viewModel(
         factory = NotificationViewModel.factory(app.container.notificationRepository)
     )
+    // In MainActivity, line 104-106, UPDATE to:
     val announcementViewModel: AnnouncementViewModel = viewModel(
-        factory = AnnouncementViewModel.factory(app.container.announcementRepository)
+        factory = AnnouncementViewModel.factory(
+            app.container.announcementRepository,
+            app.container.notificationRepository  // ADD THIS
+        )
     )
     val collectionPointViewModel: CollectionPointViewModel = viewModel(
         factory = CollectionPointViewModel.factory(app.container.collectionPointRepository)
