@@ -558,6 +558,18 @@ private fun DriverScheduleCard(
     selectedZone: Zone?,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
+    val now = remember { LocalDate.now() }
+    val scheduleDay = remember(schedule.dayOfWeek) { schedule.dayOfWeek.toDayOfWeekOrNull() }
+    val collectionDate = remember(scheduleDay, now) { scheduleDay?.let { now.with(TemporalAdjusters.nextOrSame(it)) } }
+    val daysUntilCollection = remember(collectionDate, now) { collectionDate?.let { ChronoUnit.DAYS.between(now, it).toInt() } }
+    val isToday = daysUntilCollection == 0
+    val badgeText = when {
+        isToday -> "TODAY"
+        daysUntilCollection == 1 -> "TOMORROW"
+        daysUntilCollection != null && daysUntilCollection > 1 -> "IN $daysUntilCollection DAYS"
+        else -> null
+    }
+
     Card(
         modifier  = Modifier
             .fillMaxWidth()
@@ -566,8 +578,14 @@ private fun DriverScheduleCard(
                     onCalculateRoute(zone.name, schedule.id)
                 }
             },
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors    = CardDefaults.cardColors(
+            containerColor = if (isToday) {
+                MaterialTheme.colorScheme.tertiaryContainer
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 4.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -576,11 +594,35 @@ private fun DriverScheduleCard(
                 verticalAlignment     = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text       = schedule.dayOfWeek,
-                        style      = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text       = schedule.dayOfWeek,
+                            style      = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        badgeText?.let { badge ->
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = if (isToday) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                },
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text = badge,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isToday) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    },
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
                     if (!schedule.collectionTimeRange.isNullOrBlank()) {
                         Text(
                             text  = "🕐 ${schedule.collectionTimeRange}",

@@ -121,8 +121,8 @@ fun AppNavHost(
                 onNavigateToZoneManagement = {
                     navController.navigate(Routes.MANAGE_ZONES)
                 },
-                onCalculateRoute = { zoneName, _ ->
-                    navController.navigate(Routes.buildActiveRoute(zoneName))
+                onCalculateRoute = { zoneName, scheduleDayId ->
+                    navController.navigate(Routes.buildActiveRoute(zoneName, scheduleDayId))
                 },
                 isDriverInDriverView = isDriverInDriverView
             )
@@ -149,13 +149,18 @@ fun AppNavHost(
 
         composable(
             route     = Routes.ACTIVE_ROUTE,
-            arguments = listOf(navArgument("zoneName") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("zoneName") { type = NavType.StringType },
+                navArgument("scheduleDayId") { type = NavType.StringType }
+            )
         ) { backStackEntry ->
             val zoneName = (backStackEntry.arguments?.getString("zoneName") ?: "")
                 .replace("_", " ")
+            val scheduleDayId = backStackEntry.arguments?.getString("scheduleDayId") ?: ""
             ActiveRouteScreen(
                 viewModel      = routeViewModel,
                 zoneName       = zoneName,
+                scheduleDayId  = scheduleDayId,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
