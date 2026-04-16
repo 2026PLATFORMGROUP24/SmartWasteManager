@@ -132,6 +132,11 @@ class CollectionPointRepository {
      */
     suspend fun updateCollectionPoint(point: CollectionPoint): Result<Unit> {
         return try {
+            val ownerUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not signed in"))
+            val doc = collection.document(point.id).get().await()
+            if (!doc.exists() || doc.getString("userId") != ownerUid) {
+                return Result.failure(Exception("You can only edit your own collection points"))
+            }
             collection.document(point.id)
                 .update(
                     mapOf(
@@ -153,7 +158,11 @@ class CollectionPointRepository {
      */
     suspend fun markForCollectionDay(pointId: String, scheduleDayId: String): Result<Unit> {
         return try {
+            val ownerUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not signed in"))
             val doc = collection.document(pointId).get().await()
+            if (!doc.exists() || doc.getString("userId") != ownerUid) {
+                return Result.failure(Exception("You can only update your own collection points"))
+            }
             val current = (doc.get("markedForCollectionDays") as? List<*>)
                 ?.filterIsInstance<String>() ?: emptyList()
             val updated = (current + scheduleDayId).distinct()
@@ -172,7 +181,11 @@ class CollectionPointRepository {
      */
     suspend fun unmarkFromCollectionDay(pointId: String, scheduleDayId: String): Result<Unit> {
         return try {
+            val ownerUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not signed in"))
             val doc = collection.document(pointId).get().await()
+            if (!doc.exists() || doc.getString("userId") != ownerUid) {
+                return Result.failure(Exception("You can only update your own collection points"))
+            }
             val current = (doc.get("markedForCollectionDays") as? List<*>)
                 ?.filterIsInstance<String>() ?: emptyList()
             val updated = current.filter { it != scheduleDayId }
@@ -189,6 +202,8 @@ class CollectionPointRepository {
     suspend fun getPointById(pointId: String): CollectionPoint? {
         return try {
             val doc = collection.document(pointId).get().await()
+            val ownerUid = auth.currentUser?.uid ?: return null
+            if (!doc.exists() || doc.getString("userId") != ownerUid) return null
             doc.toCollectionPoint()
         } catch (_: Exception) {
             null
@@ -200,6 +215,11 @@ class CollectionPointRepository {
      */
     suspend fun deleteCollectionPoint(pointId: String): Result<Unit> {
         return try {
+            val ownerUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not signed in"))
+            val doc = collection.document(pointId).get().await()
+            if (!doc.exists() || doc.getString("userId") != ownerUid) {
+                return Result.failure(Exception("You can only delete your own collection points"))
+            }
             collection.document(pointId).delete().await()
             Result.success(Unit)
         } catch (e: Exception) {

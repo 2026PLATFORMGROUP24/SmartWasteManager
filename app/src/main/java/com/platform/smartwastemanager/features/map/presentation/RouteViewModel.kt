@@ -80,6 +80,7 @@ class RouteViewModel(
 
     private var allZonesJob: Job? = null
     private var routeJob: Job? = null
+    private var currentScheduleDayId: String = ""
 
     // =========================================================================
     // All-Zones (Global Zone Management)
@@ -157,6 +158,7 @@ class RouteViewModel(
         driverLat: Double = 0.0,
         driverLng: Double = 0.0
     ) {
+        currentScheduleDayId = scheduleDayId
         routeJob?.cancel()
         routeJob = viewModelScope.launch {
             _activeRouteState.value = ActiveRouteUiState.Calculating
@@ -208,8 +210,12 @@ class RouteViewModel(
 
         viewModelScope.launch {
             try {
-                if (currentStop.type == RouteStopType.WASTE_REPORT) {
-                    mapRepository.collectStop(currentStop.reportId)
+                when (currentStop.type) {
+                    RouteStopType.WASTE_REPORT -> mapRepository.collectStop(currentStop.reportId)
+                    RouteStopType.COLLECTION_POINT -> mapRepository.unmarkCollectionPointFromDay(
+                        pointId = currentStop.reportId,
+                        scheduleDayId = currentScheduleDayId
+                    )
                 }
 
                 val updatedStops = inProgress.stops.toMutableList().also {
@@ -221,10 +227,15 @@ class RouteViewModel(
                 if (nextIndex >= updatedStops.size) {
                     _activeRouteState.value = ActiveRouteUiState.Completed
                 } else {
+                    val remainingPolyline = buildRemainingPolyline(
+                        driverLat = driverLat,
+                        driverLng = driverLng,
+                        remainingStops = updatedStops.drop(nextIndex).filterNot { it.isCollected }
+                    )
                     _activeRouteState.value = ActiveRouteUiState.InProgress(
                         stops             = updatedStops,
                         currentStopIndex  = nextIndex,
-                        roadPolyline      = inProgress.roadPolyline,
+                        roadPolyline      = remainingPolyline,
                         directionsLoading = true
                     )
                     fetchDirectionsToStop(driverLat, driverLng, updatedStops[nextIndex])
@@ -234,6 +245,21 @@ class RouteViewModel(
                     "Could not record collection: ${e.message}"
                 )
             }
+        }
+    }
+
+    private fun buildRemainingPolyline(
+        driverLat: Double,
+        driverLng: Double,
+        remainingStops: List<RouteStop>
+    ): List<LatLng> {
+        val stopPoints = remainingStops.map { LatLng(it.location.latitude, it.location.longitude) }
+        if (stopPoints.isEmpty()) return emptyList()
+        val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
+        return if (hasDriverLocation) {
+            listOf(LatLng(driverLat, driverLng)) + stopPoints
+        } else {
+            stopPoints
         }
     }
 
