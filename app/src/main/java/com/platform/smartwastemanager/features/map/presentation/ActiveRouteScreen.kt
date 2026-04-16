@@ -35,7 +35,9 @@ import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.RouteStopType
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -77,6 +79,7 @@ fun ActiveRouteScreen(
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
     var hasRequestedRoute by remember(zoneName) { mutableStateOf(false) }
+    var lastNavigationRefreshLocation by remember { mutableStateOf<LatLng?>(null) }
 
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
@@ -110,16 +113,19 @@ fun ActiveRouteScreen(
 
     LaunchedEffect(routeState, locationPermissions.allPermissionsGranted) {
         if (!locationPermissions.allPermissionsGranted) return@LaunchedEffect
-        while (true) {
-            val inProgress = routeState as? ActiveRouteUiState.InProgress ?: break
+        while (currentCoroutineContext().isActive) {
+            if (routeState !is ActiveRouteUiState.InProgress) break
             val gp = runCatching { LocationHelper.getCurrentLocation(context) }.getOrNull()
             if (gp != null && (gp.latitude != 0.0 || gp.longitude != 0.0)) {
-                viewModel.refreshNavigationToCurrentStop(gp.latitude, gp.longitude)
+                val currentLocation = LatLng(gp.latitude, gp.longitude)
+                val movedEnough = lastNavigationRefreshLocation == null ||
+                        distanceMeters(lastNavigationRefreshLocation!!, currentLocation) >= 20.0
+                if (movedEnough) {
+                    lastNavigationRefreshLocation = currentLocation
+                    viewModel.refreshNavigationToCurrentStop(gp.latitude, gp.longitude)
+                }
             }
             delay(10_000L)
-            if (inProgress.currentStopIndex != (routeState as? ActiveRouteUiState.InProgress)?.currentStopIndex) {
-                continue
-            }
         }
     }
 
@@ -788,6 +794,16 @@ private fun RouteMapWithStops(
             )
         }
     }
+}
+
+private fun distanceMeters(a: LatLng, b: LatLng): Double {
+    val results = FloatArray(1)
+    android.location.Location.distanceBetween(
+        a.latitude, a.longitude,
+        b.latitude, b.longitude,
+        results
+    )
+    return results[0].toDouble()
 }
 
 /** Compact stop-list panel used in the Ready state. */

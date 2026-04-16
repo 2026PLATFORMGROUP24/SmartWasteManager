@@ -23,6 +23,7 @@ import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Guide list screen — shows all recycling guides as scrollable cards.
@@ -103,7 +104,6 @@ fun GuideListScreen(
             onRefresh = {
                 isRefreshing = true
                 viewModel.loadGuides()
-                isRefreshing = false
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -197,6 +197,12 @@ fun GuideListScreen(
                 }
             }
         }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
+            }
         }
     }
 }

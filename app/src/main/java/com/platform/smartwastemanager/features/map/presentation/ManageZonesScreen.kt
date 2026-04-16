@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.map.domain.Zone
+import kotlinx.coroutines.delay
 
 /**
  * ManageZonesScreen — global zone CRUD for drivers.
@@ -170,7 +171,6 @@ fun ManageZonesScreen(
                 onRefresh = {
                     isRefreshing = true
                     viewModel.loadAllZones()
-                    isRefreshing = false
                 },
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -241,6 +241,12 @@ fun ManageZonesScreen(
                         }
                     }
                 }
+            }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
             }
         }
     }

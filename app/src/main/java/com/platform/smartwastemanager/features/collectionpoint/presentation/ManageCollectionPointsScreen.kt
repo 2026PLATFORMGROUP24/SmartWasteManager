@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,7 +129,6 @@ fun ManageCollectionPointsScreen(
                 onRefresh = {
                     isRefreshing = true
                     viewModel.loadCurrentUserPoints()
-                    isRefreshing = false
                 },
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -159,6 +159,12 @@ fun ManageCollectionPointsScreen(
                         }
                     }
                 }
+            }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
             }
         }
     }
