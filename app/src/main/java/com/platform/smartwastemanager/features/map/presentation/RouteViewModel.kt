@@ -136,7 +136,7 @@ class RouteViewModel(
         }
     }
 
-    fun deleteGlobalZone(zoneId: String) {
+    fun deleteZone(zoneId: String) {
         viewModelScope.launch {
             _actionState.value = RouteActionState.Loading
             try {
@@ -146,10 +146,6 @@ class RouteViewModel(
                 _actionState.value = RouteActionState.Error("Failed to delete zone: ${e.message}")
             }
         }
-    }
-
-    fun deleteZone(zoneId: String) {
-        deleteGlobalZone(zoneId)
     }
 
     // =========================================================================
