@@ -377,4 +377,41 @@ class MapRepository {
                 cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2).pow(2)
         return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
+    fun getZones(): Flow<List<Zone>> = callbackFlow {
+        val listener = zonesCollection
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    val zones = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val boundaries = (doc.get("boundaries") as? List<*>)
+                                ?.mapNotNull { item ->
+                                    (item as? Map<*, *>)?.let { map ->
+                                        val lat = (map["latitude"] as? Number)?.toDouble() ?: 0.0
+                                        val lng = (map["longitude"] as? Number)?.toDouble() ?: 0.0
+                                        LatLng(lat, lng)
+                                    }
+                                } ?: emptyList()
+
+                            Zone(
+                                id = doc.id,
+                                name = doc.getString("name") ?: "",
+                                boundaries = boundaries,
+                                createdBy = doc.getString("createdBy") ?: "",
+                                createdAt = doc.getTimestamp("createdAt") ?: Timestamp.now()
+                            )
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    trySend(zones)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }.catch { emit(emptyList()) }
 }

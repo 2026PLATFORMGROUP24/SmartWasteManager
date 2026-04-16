@@ -11,8 +11,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.tasks.await
 
 /**
- * Handles all Firestore CRUD operations for the schedules collection.
- * Now also reads/writes the zoneIds field on each schedule document.
+ * Handles all Firestore CRUD operations for zone-based collection schedules.
  */
 class ScheduleRepository {
 
@@ -20,14 +19,14 @@ class ScheduleRepository {
     private val schedulesCollection = firestore.collection(Constants.COLLECTION_SCHEDULES)
 
     /**
-     * Returns a real-time stream of all schedule entries, ordered by day of week.
-     * Never calls close(error) — errors emit an empty list instead (Rule 4).
+     * Returns a real-time stream of ALL schedules for a specific zone.
      */
-    fun getSchedules(): Flow<List<CollectionDay>> = callbackFlow<List<CollectionDay>> {
-        val listenerRegistration = schedulesCollection
+    fun getSchedulesForZone(zoneId: String): Flow<List<CollectionDay>> = callbackFlow {
+        val listener = schedulesCollection
+            .whereEqualTo("zoneId", zoneId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList<CollectionDay>())
+                    trySend(emptyList())
                     return@addSnapshotListener
                 }
 
@@ -36,18 +35,16 @@ class ScheduleRepository {
                         try {
                             CollectionDay(
                                 id = doc.id,
+                                zoneId = doc.getString("zoneId") ?: "",
                                 dayOfWeek = doc.getString("dayOfWeek") ?: "",
                                 wasteCategories = (doc.get("wasteCategories") as? List<*>)
                                     ?.filterIsInstance<String>() ?: emptyList(),
                                 collectionTimeRange = doc.getString("collectionTimeRange"),
                                 linkedGuideId = doc.getString("linkedGuideId"),
-                                // Read assigned zone IDs — default to empty list if field missing
-                                zoneIds = (doc.get("zoneIds") as? List<*>)
-                                    ?.filterIsInstance<String>() ?: emptyList(),
                                 createdBy = doc.getString("createdBy") ?: "",
                                 updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now()
                             )
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             null
                         }
                     }.sortedBy { Constants.DAYS_OF_WEEK.indexOf(it.dayOfWeek) }
@@ -56,23 +53,23 @@ class ScheduleRepository {
                 }
             }
 
-        awaitClose { listenerRegistration.remove() }
-    }.catch {
-        emit(emptyList())
-    }
+        awaitClose { listener.remove() }
+    }.catch { emit(emptyList()) }
 
-    /** Creates a new schedule entry including the zoneIds list. */
+    /**
+     * Creates a new schedule entry for a specific zone.
+     */
     suspend fun createSchedule(collectionDay: CollectionDay): Result<Unit> {
         return try {
             val docRef = schedulesCollection.document()
             docRef.set(
                 mapOf(
                     "id" to docRef.id,
+                    "zoneId" to collectionDay.zoneId,
                     "dayOfWeek" to collectionDay.dayOfWeek,
                     "wasteCategories" to collectionDay.wasteCategories,
                     "collectionTimeRange" to collectionDay.collectionTimeRange,
                     "linkedGuideId" to collectionDay.linkedGuideId,
-                    "zoneIds" to collectionDay.zoneIds,
                     "createdBy" to collectionDay.createdBy,
                     "updatedAt" to Timestamp.now()
                 )
@@ -83,17 +80,19 @@ class ScheduleRepository {
         }
     }
 
-    /** Updates an existing schedule entry including the zoneIds list. */
+    /**
+     * Updates an existing schedule entry.
+     */
     suspend fun updateSchedule(collectionDay: CollectionDay): Result<Unit> {
         return try {
             schedulesCollection.document(collectionDay.id)
                 .update(
                     mapOf(
+                        "zoneId" to collectionDay.zoneId,
                         "dayOfWeek" to collectionDay.dayOfWeek,
                         "wasteCategories" to collectionDay.wasteCategories,
                         "collectionTimeRange" to collectionDay.collectionTimeRange,
                         "linkedGuideId" to collectionDay.linkedGuideId,
-                        "zoneIds" to collectionDay.zoneIds,
                         "updatedAt" to Timestamp.now()
                     )
                 ).await()
@@ -104,25 +103,8 @@ class ScheduleRepository {
     }
 
     /**
-     * Updates ONLY the zoneIds field on a schedule document.
-     * Used when a driver assigns/unassigns zones without touching other fields.
+     * Deletes a schedule entry.
      */
-    suspend fun updateScheduleZoneIds(scheduleId: String, zoneIds: List<String>): Result<Unit> {
-        return try {
-            schedulesCollection.document(scheduleId)
-                .update(
-                    mapOf(
-                        "zoneIds" to zoneIds,
-                        "updatedAt" to Timestamp.now()
-                    )
-                ).await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /** Deletes a schedule entry by its Firestore document ID. */
     suspend fun deleteSchedule(scheduleId: String): Result<Unit> {
         return try {
             schedulesCollection.document(scheduleId).delete().await()

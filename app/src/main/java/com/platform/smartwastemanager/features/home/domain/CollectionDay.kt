@@ -3,25 +3,33 @@ package com.platform.smartwastemanager.features.home.domain
 import com.google.firebase.Timestamp
 
 /**
- * Represents one schedule entry stored in Firestore under schedules/{docId}.
+ * Represents a collection schedule for a specific day within a specific ZONE.
  *
- * @property id                 Firestore document ID.
- * @property dayOfWeek          E.g., "Monday", "Tuesday", ..., "Sunday".
- * @property wasteCategories    List of waste categories collected on this day.
- * @property collectionTimeRange Optional time range string, e.g. "07:00 – 12:00".
- * @property linkedGuideId      Optional Firestore ID of a recycling guide for this day.
- * @property zoneIds            List of global zone IDs assigned to this schedule day.
- *                              Drivers pick from all global zones and assign them here.
- * @property createdBy          UID of the driver who created this entry.
- * @property updatedAt          Timestamp of the most recent update.
+ * NEW ZONE-BASED MODEL:
+ * - Each CollectionDay belongs to ONE zone
+ * - Schedules are zone-specific (different zones have different schedules)
+ * - When a driver taps a day, routes are calculated from collection points
+ *   marked for this day within this zone
+ *
+ * Firestore schema: schedules/{docId}
+ * {
+ *   id: String,
+ *   zoneId: String,                      // NEW: which zone this schedule belongs to
+ *   dayOfWeek: String,                   // "Monday" … "Sunday"
+ *   wasteCategories: List<String>,       // ["Recyclable", "Glass"]
+ *   collectionTimeRange: String?,        // "07:00 – 12:00" or null
+ *   linkedGuideId: String?,
+ *   createdBy: String,
+ *   updatedAt: Timestamp
+ * }
  */
 data class CollectionDay(
     val id: String = "",
+    val zoneId: String = "",                           // NEW: zone association
     val dayOfWeek: String = "",
     val wasteCategories: List<String> = emptyList(),
     val collectionTimeRange: String? = null,
     val linkedGuideId: String? = null,
-    val zoneIds: List<String> = emptyList(),
     val createdBy: String = "",
     val updatedAt: Timestamp = Timestamp.now()
 )

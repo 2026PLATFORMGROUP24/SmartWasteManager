@@ -113,6 +113,7 @@ fun AppNavHost(
 
         // ======================== HOME ========================
 
+        // Update HomeScreen composable call (around line 116-129):
         composable(Routes.HOME) {
             HomeScreen(
                 viewModel            = homeViewModel,
@@ -123,6 +124,15 @@ fun AppNavHost(
                 },
                 onNavigateToZones    = { scheduleDayId, scheduleDayName ->
                     navController.navigate(Routes.buildZoneList(scheduleDayId, scheduleDayName))
+                },
+                onNavigateToCollectionPointPicker = {
+                    navController.navigate(Routes.COLLECTION_POINT_PICKER)
+                },
+                onNavigateToZoneManagement = {
+                    navController.navigate(Routes.MANAGE_ZONES)
+                },
+                onCalculateRoute = { zoneId, scheduleDayId ->
+                    // TODO: Implement route calculation based on marked points
                 },
                 isDriverInDriverView = isDriverInDriverView
             )
