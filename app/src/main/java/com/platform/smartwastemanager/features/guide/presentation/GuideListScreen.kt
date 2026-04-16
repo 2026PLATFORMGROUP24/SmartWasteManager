@@ -2,22 +2,28 @@ package com.platform.smartwastemanager.features.guide.presentation
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Guide list screen — shows all recycling guides as scrollable cards.
@@ -43,6 +49,8 @@ fun GuideListScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val dateFormat        = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    var searchQuery       by remember { mutableStateOf("") }
+    var isRefreshing      by remember { mutableStateOf(false) }
 
     // Track which guide the driver wants to delete (null = no dialog open)
     var guideToDelete by remember { mutableStateOf<RecyclingGuide?>(null) }
@@ -91,11 +99,17 @@ fun GuideListScreen(
             }
         }
     ) { innerPadding ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                viewModel.loadGuides()
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             when (val state = uiState) {
 
                 is GuideListUiState.Loading -> {
@@ -116,6 +130,11 @@ fun GuideListScreen(
                 }
 
                 is GuideListUiState.Success -> {
+                    val filteredGuides = state.guides.filter { guide ->
+                        searchQuery.isBlank() ||
+                                guide.title.contains(searchQuery, ignoreCase = true) ||
+                                guide.contentMarkdown.contains(searchQuery, ignoreCase = true)
+                    }
                     if (state.guides.isEmpty()) {
                         // Empty state message
                         Column(
@@ -136,24 +155,53 @@ fun GuideListScreen(
                             )
                         }
                     } else {
-                        LazyColumn(
-                            modifier            = Modifier.fillMaxSize(),
-                            contentPadding      = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(state.guides, key = { it.id }) { guide ->
-                                GuideListCard(
-                                    guide                = guide,
-                                    isDriverInDriverView = isDriverInDriverView,
-                                    dateFormat           = dateFormat,
-                                    onClick              = { onNavigateToDetail(guide.id) },
-                                    onEdit               = { onNavigateToEditorEdit(guide.id) },
-                                    onDelete             = { guideToDelete = guide }
-                                )
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                label = { Text("Search guides") },
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                            )
+                            LazyColumn(
+                                modifier            = Modifier.fillMaxSize(),
+                                contentPadding      = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                if (filteredGuides.isEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "No guides match your search.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    items(filteredGuides, key = { it.id }) { guide ->
+                                        GuideListCard(
+                                            guide                = guide,
+                                            isDriverInDriverView = isDriverInDriverView,
+                                            dateFormat           = dateFormat,
+                                            onClick              = { onNavigateToDetail(guide.id) },
+                                            onEdit               = { onNavigateToEditorEdit(guide.id) },
+                                            onDelete             = { guideToDelete = guide }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
             }
         }
     }
@@ -182,6 +230,24 @@ private fun GuideListCard(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            if (guide.imageUrls.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(guide.imageUrls) { imageUrl ->
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = "Guide image",
+                            modifier = Modifier
+                                .fillParentMaxWidth()
+                                .height(170.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
 
             // Title row + action buttons
             Row(
@@ -216,6 +282,12 @@ private fun GuideListCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Posted by driver",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // Edit / Delete buttons — driver view only

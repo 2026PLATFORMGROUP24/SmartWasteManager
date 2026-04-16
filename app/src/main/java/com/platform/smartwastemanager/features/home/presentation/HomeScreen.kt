@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +27,7 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -49,6 +51,10 @@ fun HomeScreen(
     val uiState            by viewModel.uiState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var hasNewInfoDetected by remember { mutableStateOf(false) }
+    var hasInitialSnapshot by remember { mutableStateOf(false) }
+    var previousMarkedSnapshot by remember { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
 
     LaunchedEffect(uiState) {
         when (uiState) {
@@ -62,6 +68,15 @@ fun HomeScreen(
             }
             else -> {}
         }
+    }
+
+    LaunchedEffect(collectionPoints) {
+        val current = collectionPoints.associate { it.id to it.markedForCollectionDays.toSet() }
+        if (hasInitialSnapshot && previousMarkedSnapshot != current) {
+            hasNewInfoDetected = true
+        }
+        previousMarkedSnapshot = current
+        hasInitialSnapshot = true
     }
 
     Scaffold(
@@ -82,6 +97,14 @@ fun HomeScreen(
             }
         }
     ) { innerPadding ->
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                viewModel.refreshCurrentView()
+                hasNewInfoDetected = false
+            }
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -89,6 +112,23 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
+
+            if (hasNewInfoDetected) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "New information detected, drag down to refresh",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Text(
                 text       = "Collection Schedule",
@@ -122,6 +162,13 @@ fun HomeScreen(
                     onNavigateToManageZones = onNavigateToManageZones,
                     onCalculateRoute  = onCalculateRoute
                 )
+            }
+        }
+        }
+        LaunchedEffect(isRefreshing) {
+            if (isRefreshing) {
+                delay(700)
+                isRefreshing = false
             }
         }
     }

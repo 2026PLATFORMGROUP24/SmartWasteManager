@@ -51,6 +51,8 @@ sealed class ActiveRouteUiState {
         val currentStopIndex: Int,
         val roadPolyline: List<LatLng> = emptyList(),
         val directions: List<String> = emptyList(),
+        val distanceMeters: Int? = null,
+        val etaMinutes: Int? = null,
         val directionsLoading: Boolean = false
     ) : ActiveRouteUiState()
 
@@ -273,7 +275,7 @@ class RouteViewModel(
     private fun fetchDirectionsToStop(driverLat: Double, driverLng: Double, stop: RouteStop) {
         viewModelScope.launch {
             try {
-                val directions = withTimeout(15_000L) {
+                val navigation = withTimeout(15_000L) {
                     mapRepository.getDirectionsToStop(
                         fromLat = driverLat, fromLng = driverLng,
                         toLat   = stop.location.latitude, toLng = stop.location.longitude
@@ -282,7 +284,9 @@ class RouteViewModel(
                 val current = _activeRouteState.value as? ActiveRouteUiState.InProgress
                     ?: return@launch
                 _activeRouteState.value = current.copy(
-                    directions        = directions,
+                    directions        = navigation.steps,
+                    distanceMeters    = navigation.distanceMeters,
+                    etaMinutes        = navigation.durationSeconds?.let { (it / 60.0).toInt() },
                     directionsLoading = false
                 )
             } catch (_: Exception) {
@@ -290,9 +294,33 @@ class RouteViewModel(
                     ?: return@launch
                 _activeRouteState.value = current.copy(
                     directions        = emptyList(),
+                    distanceMeters    = null,
+                    etaMinutes        = null,
                     directionsLoading = false
                 )
             }
+        }
+    }
+
+    fun refreshNavigationToCurrentStop(driverLat: Double, driverLng: Double) {
+        val current = _activeRouteState.value as? ActiveRouteUiState.InProgress ?: return
+        val activeStop = current.stops.getOrNull(current.currentStopIndex) ?: return
+        viewModelScope.launch {
+            val remainingStops = current.stops
+                .drop(current.currentStopIndex)
+                .filterNot { it.isCollected }
+            val updatedPolyline = mapRepository.getRoadPolylineForOrderedStops(
+                stops = remainingStops,
+                driverLat = driverLat,
+                driverLng = driverLng
+            ).ifEmpty {
+                buildRemainingPolyline(driverLat, driverLng, remainingStops)
+            }
+            _activeRouteState.value = current.copy(
+                roadPolyline = updatedPolyline,
+                directionsLoading = true
+            )
+            fetchDirectionsToStop(driverLat, driverLng, activeStop)
         }
     }
 

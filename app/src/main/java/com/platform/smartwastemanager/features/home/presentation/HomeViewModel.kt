@@ -301,6 +301,20 @@ class HomeViewModel(
         }
     }
 
+    fun refreshCurrentView() {
+        loadCollectionPoints()
+        loadZones()
+        val zoneId = if (_isDriverViewActive.value) {
+            _selectedZone.value?.id
+        } else {
+            _selectedPoint.value?.zoneId
+        }
+        _schedules.value = emptyList()
+        if (!zoneId.isNullOrBlank()) {
+            loadSchedulesForZone(zoneId)
+        }
+    }
+
     fun resetUiState() {
         _uiState.value = HomeUiState.Idle
     }

@@ -295,19 +295,23 @@ fun SmartWasteManagerAppContent() {
             if (!isOnAuthScreen) {
                 NavigationBar {
                     BottomNavItem.all.forEach { item ->
+                        val isReportDisabled = isDriver && isDriverViewActive && item.route == Routes.REPORT
                         NavigationBarItem(
                             icon     = { Icon(item.icon, contentDescription = item.label) },
                             label    = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
                             } == true,
+                            enabled = !isReportDisabled,
                             onClick  = {
-                                navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (!isReportDisabled) {
+                                    navController.navigate(item.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState    = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState    = true
                                 }
                             }
                         )

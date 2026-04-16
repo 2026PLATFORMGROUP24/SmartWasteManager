@@ -146,6 +146,7 @@ fun AppNavHost(
                 viewModel      = routeViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onCreateZone   = { navController.navigate(Routes.ZONE_MAP_PICKER) },
+                currentDriverUid = currentUser?.uid ?: "",
                 selectedZone   = selectedZone,
                 onSelectZone   = { homeViewModel.selectZone(it) }
             )
@@ -221,6 +222,7 @@ fun AppNavHost(
 
         composable(Routes.REPORT) {
             ReportScreen(
+                isDriverInDriverView = isDriverInDriverView,
                 onNavigateToScan = { navController.navigate(Routes.SCAN) },
                 onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
             )

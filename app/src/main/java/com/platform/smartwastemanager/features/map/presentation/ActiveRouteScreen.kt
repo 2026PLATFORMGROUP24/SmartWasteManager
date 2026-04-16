@@ -35,6 +35,9 @@ import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.RouteStopType
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -76,6 +79,7 @@ fun ActiveRouteScreen(
         position = CameraPosition.fromLatLngZoom(defaultPosition, 13f)
     }
     var hasRequestedRoute by remember(zoneName) { mutableStateOf(false) }
+    var lastNavigationRefreshLocation by remember { mutableStateOf<LatLng?>(null) }
 
     LaunchedEffect(actionState) {
         if (actionState is RouteActionState.Error) {
@@ -104,6 +108,24 @@ fun ActiveRouteScreen(
                 )
             }
             else -> {}
+        }
+    }
+
+    LaunchedEffect(routeState, locationPermissions.allPermissionsGranted) {
+        if (!locationPermissions.allPermissionsGranted) return@LaunchedEffect
+        while (currentCoroutineContext().isActive) {
+            if (routeState !is ActiveRouteUiState.InProgress) break
+            val gp = runCatching { LocationHelper.getCurrentLocation(context) }.getOrNull()
+            if (gp != null && (gp.latitude != 0.0 || gp.longitude != 0.0)) {
+                val currentLocation = LatLng(gp.latitude, gp.longitude)
+                val movedEnough = lastNavigationRefreshLocation == null ||
+                        distanceMeters(lastNavigationRefreshLocation!!, currentLocation) >= 20.0
+                if (movedEnough) {
+                    lastNavigationRefreshLocation = currentLocation
+                    viewModel.refreshNavigationToCurrentStop(gp.latitude, gp.longitude)
+                }
+            }
+            delay(10_000L)
         }
     }
 
@@ -355,24 +377,51 @@ fun ActiveRouteScreen(
                                     )
                                     Spacer(Modifier.height(8.dp))
 
-                                    Row(
-                                        modifier              = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment     = Alignment.CenterVertically
-                                    ) {
-                                        Column {
+                                     Row(
+                                         modifier              = Modifier.fillMaxWidth(),
+                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                         verticalAlignment     = Alignment.CenterVertically
+                                     ) {
+                                         Column {
                                             Text(
                                                 text       = "Stop ${state.currentStopIndex + 1} of ${state.stops.size}",
                                                 style      = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color      = MaterialTheme.colorScheme.primary
                                             )
-                                            Text(
-                                                text  = currentStop.streetName,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
+                                             Text(
+                                                 text  = currentStop.streetName,
+                                                 style = MaterialTheme.typography.bodySmall,
+                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                                             )
+                                             if (state.distanceMeters != null || state.etaMinutes != null) {
+                                                 Text(
+                                                     text = buildString {
+                                                         state.distanceMeters?.let {
+                                                             append(
+                                                                 if (it >= 1000) {
+                                                                     String.format("%.1f km", it / 1000f)
+                                                                 } else {
+                                                                     "$it m"
+                                                                 }
+                                                             )
+                                                         }
+                                                         if (state.distanceMeters != null && state.etaMinutes != null) append(" • ")
+                                                         state.etaMinutes?.let { append("~${it} min") }
+                                                     },
+                                                     style = MaterialTheme.typography.labelSmall,
+                                                     color = MaterialTheme.colorScheme.primary
+                                                 )
+                                             }
+                                             if (state.directions.isNotEmpty()) {
+                                                 Text(
+                                                     text = state.directions.first(),
+                                                     style = MaterialTheme.typography.labelSmall,
+                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                     maxLines = 1
+                                                 )
+                                             }
+                                         }
                                         Icon(
                                             imageVector        = if (cardExpanded)
                                                 Icons.Default.KeyboardArrowDown
@@ -745,6 +794,16 @@ private fun RouteMapWithStops(
             )
         }
     }
+}
+
+private fun distanceMeters(a: LatLng, b: LatLng): Double {
+    val results = FloatArray(1)
+    android.location.Location.distanceBetween(
+        a.latitude, a.longitude,
+        b.latitude, b.longitude,
+        results
+    )
+    return results[0].toDouble()
 }
 
 /** Compact stop-list panel used in the Ready state. */
