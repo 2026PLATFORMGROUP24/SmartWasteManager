@@ -35,10 +35,10 @@ interface OsrmApiService {
     ): OsrmTripResponse
 
     /**
-     * Requests a driving route between exactly two coordinates with step-by-step instructions.
-     * Used to get turn-by-turn directions from the driver's current location to the next stop.
+     * Requests a driving route between coordinates with optional step-by-step instructions.
+     * Used for turn-by-turn directions and for road-following polylines across ordered stops.
      *
-     * @param coordinates Two "longitude,latitude" pairs separated by a semicolon.
+     * @param coordinates One or more "longitude,latitude" pairs separated by semicolons.
      * @param steps       true = include turn-by-turn step instructions in the response.
      * @param approaches  Semicolon-separated approach hint per coordinate.
      *                    "curb;curb" = approach both ends from the kerb side.

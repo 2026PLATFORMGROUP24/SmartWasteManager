@@ -53,4 +53,5 @@ object Routes {
     // Collection Points (user-facing zone-based system)
     const val COLLECTION_POINTS        = "collection-points"
     const val COLLECTION_POINT_PICKER  = "collection-points/picker"
+    const val MANAGE_COLLECTION_POINTS = "collection-points/manage"
 }

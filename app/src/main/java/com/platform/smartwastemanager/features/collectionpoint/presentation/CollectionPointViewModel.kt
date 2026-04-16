@@ -80,6 +80,13 @@ class CollectionPointViewModel(
 
     fun createCollectionPoint(point: CollectionPoint) {
         viewModelScope.launch {
+            if (_collectionPoints.value.size >= 10) {
+                _uiState.value = CollectionPointUiState.Error(
+                    "Maximum limit of 10 collection points reached. Delete a point to add more."
+                )
+                return@launch
+            }
+
             _uiState.value = CollectionPointUiState.Loading
             val result = repository.createCollectionPoint(point)
             _uiState.value = if (result.isSuccess)

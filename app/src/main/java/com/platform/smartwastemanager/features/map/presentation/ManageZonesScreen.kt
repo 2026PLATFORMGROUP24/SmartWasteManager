@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.map.presentation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,7 +33,9 @@ import com.platform.smartwastemanager.features.map.domain.Zone
 fun ManageZonesScreen(
     viewModel: RouteViewModel,
     onNavigateBack: () -> Unit,
-    onCreateZone: () -> Unit
+    onCreateZone: () -> Unit,
+    selectedZone: Zone?,
+    onSelectZone: (Zone) -> Unit
 ) {
     // Load ALL zones, not just the driver's zones
     LaunchedEffect(Unit) {
@@ -199,6 +202,8 @@ fun ManageZonesScreen(
                             items(filteredZones, key = { it.id }) { zone ->
                                 GlobalZoneCard(
                                     zone          = zone,
+                                    isSelected    = zone.id == selectedZone?.id,
+                                    onSelectClick = { onSelectZone(zone) },
                                     onDeleteClick = { zoneToDelete = zone }
                                 )
                             }
@@ -214,22 +219,33 @@ fun ManageZonesScreen(
 @Composable
 private fun GlobalZoneCard(
     zone: Zone,
+    isSelected: Boolean,
+    onSelectClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
     Card(
         modifier  = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
         )
     ) {
         Row(
             modifier              = Modifier
                 .fillMaxWidth()
+                .clickable { onSelectClick() }
                 .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment     = Alignment.CenterVertically
         ) {
+            RadioButton(
+                selected = isSelected,
+                onClick = onSelectClick
+            )
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(

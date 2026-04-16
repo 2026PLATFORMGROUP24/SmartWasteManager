@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,8 +35,8 @@ fun HomeScreen(
     onNavigateToManage: () -> Unit,
     onNavigateToGuide: (String) -> Unit,
     onNavigateToZones: (scheduleDayId: String, scheduleDayName: String) -> Unit = { _, _ -> },
-    onNavigateToCollectionPointPicker: () -> Unit,
-    onNavigateToZoneManagement: () -> Unit,
+    onNavigateToManagePoints: () -> Unit,
+    onNavigateToManageZones: () -> Unit,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit,
     isDriverInDriverView: Boolean = false
 ) {
@@ -102,8 +103,7 @@ fun HomeScreen(
                     collectionPoints = collectionPoints,
                     selectedPoint    = selectedPoint,
                     schedules        = schedules,
-                    onSelectPoint    = { viewModel.selectCollectionPoint(it) },
-                    onNavigateToCollectionPointPicker = onNavigateToCollectionPointPicker,
+                    onNavigateToManagePoints = onNavigateToManagePoints,
                     onNavigateToGuide = onNavigateToGuide,
                     onMarkForCollection = { pointId, scheduleDayId ->
                         viewModel.markPointForCollection(pointId, scheduleDayId)
@@ -117,8 +117,7 @@ fun HomeScreen(
                     zones             = zones,
                     selectedZone      = selectedZone,
                     schedules         = schedules,
-                    onSelectZone      = { viewModel.selectZone(it) },
-                    onNavigateToZoneManagement = onNavigateToZoneManagement,
+                    onNavigateToManageZones = onNavigateToManageZones,
                     onCalculateRoute  = onCalculateRoute
                 )
             }
@@ -132,8 +131,7 @@ private fun UserHomeContent(
     collectionPoints: List<CollectionPoint>,
     selectedPoint: CollectionPoint?,
     schedules: List<CollectionDay>,
-    onSelectPoint: (CollectionPoint) -> Unit,
-    onNavigateToCollectionPointPicker: () -> Unit,
+    onNavigateToManagePoints: () -> Unit,
     onNavigateToGuide: (String) -> Unit,
     onMarkForCollection: (pointId: String, scheduleDayId: String) -> Unit,
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit
@@ -158,26 +156,26 @@ private fun UserHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            collectionPoints.forEach { point ->
+            selectedPoint?.let { point ->
                 DropdownMenuItem(
                     text = {
-                        Column {
-                            Text(point.name, fontWeight = FontWeight.Bold)
-                            Text(
-                                point.streetName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(point.name, fontWeight = FontWeight.Bold)
+                                Text(
+                                    point.streetName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     },
                     onClick = {
-                        onSelectPoint(point)
                         expanded = false
                     }
                 )
-            }
-
-            if (collectionPoints.isNotEmpty()) {
                 HorizontalDivider()
             }
 
@@ -185,14 +183,14 @@ private fun UserHomeContent(
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Add,
+                            Icons.Default.Settings,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Add New Collection Point",
+                            "Manage Collection Points",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -200,7 +198,7 @@ private fun UserHomeContent(
                 },
                 onClick = {
                     expanded = false
-                    onNavigateToCollectionPointPicker()
+                    onNavigateToManagePoints()
                 }
             )
         }
@@ -228,10 +226,14 @@ private fun UserHomeContent(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text  = "Select 'Add New Collection Point' from the dropdown above to get started.",
+                    text  = "You haven't added any collection points yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onNavigateToManagePoints) {
+                    Text("Add Your First Point")
+                }
             }
         }
     } else if (schedules.isEmpty()) {
@@ -425,8 +427,7 @@ private fun DriverHomeContent(
     zones: List<Zone>,
     selectedZone: Zone?,
     schedules: List<CollectionDay>,
-    onSelectZone: (Zone) -> Unit,
-    onNavigateToZoneManagement: () -> Unit,
+    onNavigateToManageZones: () -> Unit,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -449,17 +450,19 @@ private fun DriverHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            zones.forEach { zone ->
+            selectedZone?.let { zone ->
                 DropdownMenuItem(
-                    text    = { Text(zone.name) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Map, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(zone.name, fontWeight = FontWeight.Bold)
+                        }
+                    },
                     onClick = {
-                        onSelectZone(zone)
                         expanded = false
                     }
                 )
-            }
-
-            if (zones.isNotEmpty()) {
                 HorizontalDivider()
             }
 
@@ -467,14 +470,14 @@ private fun DriverHomeContent(
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Add,
+                            Icons.Default.Settings,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Add New Zone",
+                            "Manage Zones",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -482,7 +485,7 @@ private fun DriverHomeContent(
                 },
                 onClick = {
                     expanded = false
-                    onNavigateToZoneManagement()
+                    onNavigateToManageZones()
                 }
             )
         }
