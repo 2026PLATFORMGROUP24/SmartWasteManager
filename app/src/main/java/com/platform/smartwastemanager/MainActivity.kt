@@ -33,7 +33,13 @@ import com.platform.smartwastemanager.features.guide.presentation.GuideViewModel
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
+import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Notifications
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +95,9 @@ fun SmartWasteManagerAppContent() {
     val guideViewModel: GuideViewModel = viewModel(
         factory = GuideViewModel.factory(app.container.guideRepository)
     )
+    val notificationViewModel: NotificationViewModel = viewModel(
+        factory = NotificationViewModel.factory(app.container.notificationRepository)
+    )
 
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
@@ -99,6 +108,16 @@ fun SmartWasteManagerAppContent() {
     //   an empty list that never refreshes. Calling mapViewModel.loadPins() here
     //   restarts the listener once auth is confirmed, same pattern as schedules.
     // =========================================================================
+    // Request POST_NOTIFICATIONS permission on Android 13+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { /* granted or denied — notifications degrade gracefully either way */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     authViewModel.onAuthSuccess = {
         homeViewModel.loadSchedules()   // reload schedules after auth
         mapViewModel.loadPins()         // FIX: reload map pins after auth
@@ -135,6 +154,7 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route?.startsWith("guides/")              == true -> "Guide"
         currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
         currentDestination?.route?.startsWith("home/zones/")          == true -> "Collection Zones"
+        currentDestination?.route == Routes.NOTIFICATIONS    -> "Notification Centre"
         else                                                  -> "Smart Waste Manager"
     }
 
@@ -170,6 +190,18 @@ fun SmartWasteManagerAppContent() {
                         title = { Text(screenTitle) },
                         actions = {
                             // Toggle between driver/user view — visible only to drivers
+                            if (isDriver) {
+                                IconButton(onClick = {
+                                    navController.navigate(Routes.NOTIFICATIONS) {
+                                        launchSingleTop = true
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector        = Icons.Default.Notifications,
+                                        contentDescription = "Notification Centre"
+                                    )
+                                }
+                            }
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
@@ -265,6 +297,7 @@ fun SmartWasteManagerAppContent() {
             mapViewModel     = mapViewModel,
             routeViewModel   = routeViewModel,
             guideViewModel   = guideViewModel,   // Rule 11: added here AND in AppNavHost
+            notificationViewModel = notificationViewModel,
             modifier         = Modifier.padding(innerPadding)
         )
     }
