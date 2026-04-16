@@ -92,10 +92,10 @@ fun SmartWasteManagerAppContent() {
     val mapViewModel: MapViewModel = viewModel(
         factory = MapViewModel.factory(app.container.mapRepository)
     )
+
     val routeViewModel: RouteViewModel = viewModel(
         factory = RouteViewModel.factory(
-            app.container.mapRepository,
-            app.container.scheduleRepository
+            app.container.mapRepository
         )
     )
     val guideViewModel: GuideViewModel = viewModel(

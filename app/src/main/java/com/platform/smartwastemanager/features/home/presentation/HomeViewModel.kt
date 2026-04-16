@@ -231,6 +231,24 @@ class HomeViewModel(
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to delete schedule")
         }
     }
+    // ADD this method to HomeViewModel (it's missing):
+// ADD this method after createSchedule() (around line 223):
+
+    fun updateSchedule(collectionDay: CollectionDay) {
+        viewModelScope.launch {
+            _uiState.value = HomeUiState.Loading
+            val result = scheduleRepository.updateSchedule(
+                collectionDay.copy(
+                    linkedGuideId = collectionDay.linkedGuideId?.ifBlank { null },
+                    collectionTimeRange = collectionDay.collectionTimeRange?.ifBlank { null }
+                )
+            )
+            _uiState.value = if (result.isSuccess)
+                HomeUiState.Success("Schedule updated successfully")
+            else
+                HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to update schedule")
+        }
+    }
 
     // =========================================================================
     // Driver View Toggle

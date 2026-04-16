@@ -26,7 +26,6 @@ import com.platform.smartwastemanager.features.map.presentation.ManageZonesScree
 import com.platform.smartwastemanager.features.map.presentation.MapScreen
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
-import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
 import com.platform.smartwastemanager.features.report.presentation.LocationPickerMapScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
@@ -144,14 +143,6 @@ fun AppNavHost(
                 viewModel      = routeViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onCreateZone   = { navController.navigate(Routes.ZONE_MAP_PICKER) }
-            )
-        }
-
-        composable(Routes.ZONE_MAP_PICKER) {
-            ZoneMapPickerScreen(
-                viewModel      = routeViewModel,
-                driverUid      = currentUser?.uid ?: "",
-                onNavigateBack = { navController.popBackStack() }
             )
         }
 
