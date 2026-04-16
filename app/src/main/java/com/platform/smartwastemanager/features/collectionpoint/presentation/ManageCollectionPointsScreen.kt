@@ -57,7 +57,9 @@ fun ManageCollectionPointsScreen(
         }
     }
 
-    val canAddMore = collectionPoints.size < 10
+    val canAddMore = remember(collectionPoints.size) {
+        collectionPoints.size < MAX_COLLECTION_POINTS
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -96,9 +98,9 @@ fun ManageCollectionPointsScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Collection Points: ${collectionPoints.size}/10",
+                text = "Collection Points: ${collectionPoints.size}/$MAX_COLLECTION_POINTS",
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (collectionPoints.size >= 10) {
+                color = if (collectionPoints.size >= MAX_COLLECTION_POINTS) {
                     MaterialTheme.colorScheme.error
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant

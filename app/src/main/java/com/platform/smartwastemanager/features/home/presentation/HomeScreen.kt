@@ -103,6 +103,7 @@ fun HomeScreen(
                     collectionPoints = collectionPoints,
                     selectedPoint    = selectedPoint,
                     schedules        = schedules,
+                    onSelectPoint    = { viewModel.selectCollectionPoint(it) },
                     onNavigateToManagePoints = onNavigateToManagePoints,
                     onNavigateToGuide = onNavigateToGuide,
                     onMarkForCollection = { pointId, scheduleDayId ->
@@ -117,6 +118,7 @@ fun HomeScreen(
                     zones             = zones,
                     selectedZone      = selectedZone,
                     schedules         = schedules,
+                    onSelectZone      = { viewModel.selectZone(it) },
                     onNavigateToManageZones = onNavigateToManageZones,
                     onCalculateRoute  = onCalculateRoute
                 )
@@ -131,19 +133,21 @@ private fun UserHomeContent(
     collectionPoints: List<CollectionPoint>,
     selectedPoint: CollectionPoint?,
     schedules: List<CollectionDay>,
+    onSelectPoint: (CollectionPoint) -> Unit,
     onNavigateToManagePoints: () -> Unit,
     onNavigateToGuide: (String) -> Unit,
     onMarkForCollection: (pointId: String, scheduleDayId: String) -> Unit,
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val activePoint = selectedPoint ?: collectionPoints.firstOrNull()
 
     ExposedDropdownMenuBox(
         expanded         = expanded,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedPoint?.name ?: if (collectionPoints.isEmpty()) "No collection points" else "Select collection point",
+            value         = activePoint?.name ?: if (collectionPoints.isEmpty()) "No collection points" else "Select collection point",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("My Collection Point") },
@@ -156,7 +160,7 @@ private fun UserHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            selectedPoint?.let { point ->
+            activePoint?.let { point ->
                 DropdownMenuItem(
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -173,6 +177,7 @@ private fun UserHomeContent(
                         }
                     },
                     onClick = {
+                        onSelectPoint(point)
                         expanded = false
                     }
                 )
@@ -206,7 +211,7 @@ private fun UserHomeContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (selectedPoint == null && collectionPoints.isEmpty()) {
+    if (activePoint == null && collectionPoints.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -427,17 +432,19 @@ private fun DriverHomeContent(
     zones: List<Zone>,
     selectedZone: Zone?,
     schedules: List<CollectionDay>,
+    onSelectZone: (Zone) -> Unit,
     onNavigateToManageZones: () -> Unit,
     onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val activeZone = selectedZone ?: zones.firstOrNull()
 
     ExposedDropdownMenuBox(
         expanded         = expanded,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
-            value         = selectedZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
+            value         = activeZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
             onValueChange = {},
             readOnly      = true,
             label         = { Text("Zone") },
@@ -450,7 +457,7 @@ private fun DriverHomeContent(
             expanded         = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            selectedZone?.let { zone ->
+            activeZone?.let { zone ->
                 DropdownMenuItem(
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -460,6 +467,7 @@ private fun DriverHomeContent(
                         }
                     },
                     onClick = {
+                        onSelectZone(zone)
                         expanded = false
                     }
                 )
@@ -493,7 +501,7 @@ private fun DriverHomeContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (selectedZone == null && zones.isEmpty()) {
+    if (activeZone == null && zones.isEmpty()) {
         Box(
             modifier         = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center

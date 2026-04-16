@@ -378,14 +378,14 @@ class MapRepository {
 
     suspend fun getRoadPolylineForOrderedStops(
         stops: List<RouteStop>,
-        driverLat: Double = 0.0,
-        driverLng: Double = 0.0
+        driverLat: Double? = null,
+        driverLng: Double? = null
     ): List<LatLng> {
-        if (stops.size < 2) return emptyList()
+        val hasDriverLocation = driverLat != null && driverLng != null
+        if (stops.isEmpty() || (stops.size == 1 && !hasDriverLocation)) return emptyList()
 
-        val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
         val coordsList = buildList {
-            if (hasDriverLocation) add("$driverLng,$driverLat")
+            if (hasDriverLocation) add("${driverLng},${driverLat}")
             addAll(stops.map { "${it.location.longitude},${it.location.latitude}" })
         }
         val coords = coordsList.joinToString(";")
@@ -403,6 +403,7 @@ class MapRepository {
                 ?.geometry
                 ?.coordinates
                 ?.mapNotNull { coord ->
+                    // OSRM returns [longitude, latitude], but Google LatLng expects [latitude, longitude].
                     if (coord.size >= 2) LatLng(coord[1], coord[0]) else null
                 }.orEmpty()
         } catch (_: Exception) {
