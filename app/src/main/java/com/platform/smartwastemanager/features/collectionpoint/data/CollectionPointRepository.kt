@@ -2,6 +2,7 @@ package com.platform.smartwastemanager.features.collectionpoint.data
 
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
@@ -185,6 +186,15 @@ class CollectionPointRepository {
         }
     }
 
+    suspend fun getPointById(pointId: String): CollectionPoint? {
+        return try {
+            val doc = collection.document(pointId).get().await()
+            doc.toCollectionPoint()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /**
      * Deletes a collection point.
      */
@@ -194,6 +204,24 @@ class CollectionPointRepository {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun DocumentSnapshot.toCollectionPoint(): CollectionPoint? {
+        return try {
+            CollectionPoint(
+                id = id,
+                userId = getString("userId") ?: "",
+                name = getString("name") ?: "",
+                location = getGeoPoint("location") ?: GeoPoint(0.0, 0.0),
+                streetName = getString("streetName") ?: "",
+                zoneId = getString("zoneId") ?: "",
+                markedForCollectionDays = (get("markedForCollectionDays") as? List<*>)
+                    ?.filterIsInstance<String>() ?: emptyList(),
+                createdAt = getTimestamp("createdAt") ?: Timestamp.now()
+            )
+        } catch (_: Exception) {
+            null
         }
     }
 }

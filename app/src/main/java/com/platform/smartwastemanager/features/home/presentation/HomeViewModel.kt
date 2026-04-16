@@ -104,20 +104,30 @@ class HomeViewModel(
     fun markPointForCollection(pointId: String, scheduleDayId: String) {
         viewModelScope.launch {
             val result = collectionPointRepository.markForCollectionDay(pointId, scheduleDayId)
-            _uiState.value = if (result.isSuccess)
-                HomeUiState.Success("✅ Marked for collection")
-            else
+            _uiState.value = if (result.isSuccess) {
+                refreshSelectedPoint(pointId)
+                HomeUiState.Success("✅ Ready for collection")
+            } else {
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to mark for collection")
+            }
         }
     }
 
     fun unmarkPointFromCollection(pointId: String, scheduleDayId: String) {
         viewModelScope.launch {
             val result = collectionPointRepository.unmarkFromCollectionDay(pointId, scheduleDayId)
-            _uiState.value = if (result.isSuccess)
-                HomeUiState.Success("Unmarked from collection")
-            else
+            _uiState.value = if (result.isSuccess) {
+                refreshSelectedPoint(pointId)
+                HomeUiState.Success("Removed from ready list")
+            } else {
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to unmark")
+            }
+        }
+    }
+
+    private suspend fun refreshSelectedPoint(pointId: String) {
+        collectionPointRepository.getPointById(pointId)?.let { updated ->
+            _selectedPoint.value = updated
         }
     }
 
