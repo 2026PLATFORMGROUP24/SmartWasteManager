@@ -151,7 +151,8 @@ fun ScheduleManagementScreen(
             existingEntry = dialogEntry!!,
             guides        = guides,
             onDismiss     = { dialogEntry = null },
-// UPDATE lines 154-177 to call the correct methods:
+
+            // REPLACE lines 154-177 with this corrected version:
             onSave = { day, categories, timeRange, linkedGuideId, entryId ->
                 if (entryId.isBlank()) {
                     // CREATE — call createSchedule() with individual params
@@ -163,13 +164,15 @@ fun ScheduleManagementScreen(
                         driverUid           = driverUid
                     )
                 } else {
-                    // UPDATE — call updateSchedule() with individual params
+                    // UPDATE — build a CollectionDay object and pass it
+                    val existingSchedule = dialogEntry!!
                     viewModel.updateSchedule(
-                        dayOfWeek           = day,
-                        wasteCategories     = categories,
-                        collectionTimeRange = timeRange,
-                        linkedGuideId       = linkedGuideId,
-                        scheduleId          = entryId
+                        existingSchedule.copy(
+                            dayOfWeek           = day,
+                            wasteCategories     = categories,
+                            collectionTimeRange = timeRange,
+                            linkedGuideId       = linkedGuideId
+                        )
                     )
                 }
                 dialogEntry = null
