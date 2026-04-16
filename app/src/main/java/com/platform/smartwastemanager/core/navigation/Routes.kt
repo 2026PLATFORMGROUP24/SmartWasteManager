@@ -15,7 +15,7 @@ object Routes {
     const val ZONE_PICKER     = "home/zones/picker/{scheduleDayId}/{scheduleDayName}"
     const val MANAGE_ZONES    = "home/manage-zones"
     const val ZONE_MAP_PICKER = "home/zone-map-picker"
-    const val ACTIVE_ROUTE    = "home/route/{zoneName}"
+    const val ACTIVE_ROUTE    = "home/route/{zoneName}/{scheduleDayId}"
 
     fun buildZoneList(scheduleDayId: String, scheduleDayName: String) =
         "home/zones/$scheduleDayId/$scheduleDayName"
@@ -23,8 +23,8 @@ object Routes {
     fun buildZonePicker(scheduleDayId: String, scheduleDayName: String) =
         "home/zones/picker/$scheduleDayId/$scheduleDayName"
 
-    fun buildActiveRoute(zoneName: String) =
-        "home/route/${zoneName.replace(" ", "_")}"
+    fun buildActiveRoute(zoneName: String, scheduleDayId: String) =
+        "home/route/${zoneName.replace(" ", "_")}/$scheduleDayId"
 
     // Report
     const val REPORT          = "report"

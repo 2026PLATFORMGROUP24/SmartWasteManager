@@ -19,5 +19,11 @@ data class RouteStop(
     val location: GeoPoint = GeoPoint(0.0, 0.0),
     val streetName: String = "",
     val category: String = "",
+    val type: RouteStopType = RouteStopType.WASTE_REPORT,
     val isCollected: Boolean = false
 )
+
+enum class RouteStopType {
+    WASTE_REPORT,
+    COLLECTION_POINT
+}

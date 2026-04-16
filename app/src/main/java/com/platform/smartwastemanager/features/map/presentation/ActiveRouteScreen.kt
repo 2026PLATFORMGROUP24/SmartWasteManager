@@ -34,6 +34,7 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.map.domain.RouteStop
+import com.platform.smartwastemanager.features.map.domain.RouteStopType
 import kotlinx.coroutines.launch
 
 /**
@@ -52,6 +53,7 @@ import kotlinx.coroutines.launch
 fun ActiveRouteScreen(
     viewModel: RouteViewModel,
     zoneName: String,
+    scheduleDayId: String,
     onNavigateBack: () -> Unit
 ) {
     val routeState  by viewModel.activeRouteState.collectAsStateWithLifecycle()
@@ -131,6 +133,7 @@ fun ActiveRouteScreen(
                 }
                 viewModel.loadRouteForZone(
                     zone = zone,
+                    scheduleDayId = scheduleDayId,
                     driverLat = gps?.latitude ?: 0.0,
                     driverLng = gps?.longitude ?: 0.0
                 )
@@ -443,7 +446,11 @@ fun ActiveRouteScreen(
                                                         color      = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
                                                     Text(
-                                                        text  = "🗑️ ${currentStop.category}  •  Regular Pickup",
+                                                        text  = if (currentStop.type == RouteStopType.COLLECTION_POINT) {
+                                                            "📦 Collection Point  •  ${currentStop.category}"
+                                                        } else {
+                                                            "🗑️ ${currentStop.category}  •  Regular Pickup"
+                                                        },
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
@@ -682,7 +689,7 @@ fun ActiveRouteScreen(
  *   1. [roadPolyline] non-empty → real road path from OSRM (thick blue, geodesic).
  *   2. Empty → straight fallback lines between stops.
  *
- * Markers: 🟢 Green = collected | 🔵 Azure = current stop | 🔴 Red = upcoming
+ * Markers: 🟢 Green = collected | 🟠 Orange = collection point | 🔵 Azure = waste report
  */
 @Composable
 private fun RouteMapWithStops(
@@ -721,9 +728,9 @@ private fun RouteMapWithStops(
         stops.forEachIndexed { index, stop ->
             val position = LatLng(stop.location.latitude, stop.location.longitude)
             val hue = when {
-                stop.isCollected          -> BitmapDescriptorFactory.HUE_GREEN
-                index == currentStopIndex -> BitmapDescriptorFactory.HUE_AZURE
-                else                      -> BitmapDescriptorFactory.HUE_RED
+                stop.isCollected -> BitmapDescriptorFactory.HUE_GREEN
+                stop.type == RouteStopType.COLLECTION_POINT -> BitmapDescriptorFactory.HUE_ORANGE
+                else -> BitmapDescriptorFactory.HUE_AZURE
             }
             Marker(
                 state   = rememberMarkerState(position = position),

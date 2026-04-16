@@ -7,9 +7,11 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.google.android.gms.maps.model.LatLng
+import com.platform.smartwastemanager.core.util.Constants
 import com.platform.smartwastemanager.features.map.domain.MapPin
 import com.platform.smartwastemanager.features.map.domain.RouteResult
 import com.platform.smartwastemanager.features.map.domain.RouteStop
+import com.platform.smartwastemanager.features.map.domain.RouteStopType
 import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -171,18 +173,25 @@ class MapRepository {
      * Falls back to the haversine-sorted stop list with no polyline if OSRM is
      * unreachable or returns a non-Ok response.
      *
-     * @param scheduleCategories  Waste categories from the schedule day (e.g. ["Recyclable","Glass"]).
-     *                            Only reports matching one of these categories are included.
-     *                            Pass an empty list to include ALL categories.
+     * @param scheduleDayId       Schedule day document id used to fetch category filters and
+     *                            collection points marked ready for this schedule day.
      * @param driverLat           Driver's current latitude  (0.0 = unavailable).
      * @param driverLng           Driver's current longitude (0.0 = unavailable).
      */
     suspend fun calculateRouteForZone(
         zone: Zone,
-        scheduleCategories: List<String> = emptyList(),
+        scheduleDayId: String = "",
         driverLat: Double = 0.0,
         driverLng: Double = 0.0
     ): RouteResult {
+        val scheduleCategories = if (scheduleDayId.isBlank()) {
+            emptyList()
+        } else {
+            (firestore.collection(Constants.COLLECTION_SCHEDULES).document(scheduleDayId).get(Source.SERVER).await()
+                .get("wasteCategories") as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+        }
 
         // --- 1. Fetch pending Regular Pickup reports ---
         val snapshot = firestore.collection("waste_reports")
@@ -199,6 +208,7 @@ class MapRepository {
                     location    = gp,
                     streetName  = doc.getString("streetName") ?: "Unknown Street",
                     category    = doc.getString("category") ?: "Unknown",
+                    type        = RouteStopType.WASTE_REPORT,
                     isCollected = false
                 )
             } catch (e: Exception) { null }
@@ -225,8 +235,37 @@ class MapRepository {
             }
         }
 
-        if (filteredStops.isEmpty()) return RouteResult(stops = emptyList(), roadPolyline = emptyList())
-        if (filteredStops.size == 1) return RouteResult(stops = filteredStops, roadPolyline = emptyList())
+        val collectionPointStops = if (scheduleDayId.isBlank()) {
+            emptyList()
+        } else {
+            firestore.collection("collection_points")
+                .whereEqualTo("zoneId", zone.id)
+                .whereArrayContains("markedForCollectionDays", scheduleDayId)
+                .get(Source.SERVER)
+                .await()
+                .documents
+                .mapNotNull { doc ->
+                    try {
+                        val gp = doc.getGeoPoint("location") ?: return@mapNotNull null
+                        RouteStop(
+                            reportId = doc.id,
+                            location = gp,
+                            streetName = doc.getString("name")?.takeIf { it.isNotBlank() }
+                                ?: doc.getString("streetName")
+                                ?: "Collection Point",
+                            category = doc.getString("streetName")?.takeIf { it.isNotBlank() }
+                                ?: "Collection Point",
+                            type = RouteStopType.COLLECTION_POINT,
+                            isCollected = false
+                        )
+                    } catch (e: Exception) { null }
+                }
+        }
+
+        val combinedStops = filteredStops + collectionPointStops
+
+        if (combinedStops.isEmpty()) return RouteResult(stops = emptyList(), roadPolyline = emptyList())
+        if (combinedStops.size == 1) return RouteResult(stops = combinedStops, roadPolyline = emptyList())
 
         val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
 
@@ -234,7 +273,7 @@ class MapRepository {
         //        This is the reliable nearest-first guarantee that does not depend on OSRM.
         val originLat = if (hasDriverLocation) driverLat else zone.centerLat
         val originLng = if (hasDriverLocation) driverLng else zone.centerLng
-        val nearestFirstStops = filteredStops.sortedBy { stop ->
+        val nearestFirstStops = combinedStops.sortedBy { stop ->
             haversineDistanceMeters(
                 originLat, originLng,
                 stop.location.latitude, stop.location.longitude

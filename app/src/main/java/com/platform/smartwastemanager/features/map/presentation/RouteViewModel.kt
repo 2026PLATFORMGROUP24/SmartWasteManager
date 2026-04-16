@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.maps.model.LatLng
 import com.platform.smartwastemanager.features.map.data.MapRepository
 import com.platform.smartwastemanager.features.map.domain.RouteStop
+import com.platform.smartwastemanager.features.map.domain.RouteStopType
 import com.platform.smartwastemanager.features.map.domain.Zone
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -152,7 +153,7 @@ class RouteViewModel(
 
     fun loadRouteForZone(
         zone: Zone,
-        scheduleCategories: List<String> = emptyList(),
+        scheduleDayId: String = "",
         driverLat: Double = 0.0,
         driverLng: Double = 0.0
     ) {
@@ -162,17 +163,15 @@ class RouteViewModel(
             try {
                 val result = withTimeout(20_000L) {
                     mapRepository.calculateRouteForZone(
-                        zone               = zone,
-                        scheduleCategories = scheduleCategories,
-                        driverLat          = driverLat,
-                        driverLng          = driverLng
+                        zone          = zone,
+                        scheduleDayId = scheduleDayId,
+                        driverLat     = driverLat,
+                        driverLng     = driverLng
                     )
                 }
                 _activeRouteState.value = if (result.stops.isEmpty()) {
-                    val categoryLabel = if (scheduleCategories.isEmpty()) "any category"
-                    else scheduleCategories.joinToString(", ")
                     ActiveRouteUiState.Error(
-                        "No pending Regular Pickup reports found in this zone for: $categoryLabel."
+                        "No pending stops found in this zone for this schedule day."
                     )
                 } else {
                     ActiveRouteUiState.Ready(
@@ -209,7 +208,9 @@ class RouteViewModel(
 
         viewModelScope.launch {
             try {
-                mapRepository.collectStop(currentStop.reportId)
+                if (currentStop.type == RouteStopType.WASTE_REPORT) {
+                    mapRepository.collectStop(currentStop.reportId)
+                }
 
                 val updatedStops = inProgress.stops.toMutableList().also {
                     it[inProgress.currentStopIndex] = currentStop.copy(isCollected = true)
