@@ -92,6 +92,7 @@ sealed class ActiveRouteUiState {
  *   4. Creating / deleting global zones.
  *   5. Calculating the optimised collection route, starting from the driver's
  *      current GPS location so the first stop is always the nearest one.
+ *      Route pins are filtered to only those matching the schedule day's categories.
  *   6. Driving the active route: collecting stops + fetching step-by-step directions.
  */
 class RouteViewModel(
@@ -242,26 +243,42 @@ class RouteViewModel(
     // =========================================================================
 
     /**
-     * Calculates the optimised route for [zone], routing from the driver's
-     * current position ([driverLat], [driverLng]) so stop[0] is always the
-     * nearest stop to the driver.
+     * Calculates the optimised route for [zone], routing from the driver's current
+     * position ([driverLat], [driverLng]) so stop[0] is always the nearest stop.
      *
-     * Call this from the UI AFTER obtaining the driver's GPS location.
-     * Pass 0.0, 0.0 if location is unavailable — OSRM will optimise without a
-     * starting point and the fallback sorts stops by proximity to zone centre.
+     * Only reports whose category matches one of [scheduleCategories] are included
+     * as route stops. This ensures a Monday Recyclable + Glass route only shows
+     * Recyclable and Glass pickup pins, not Organic pins, etc.
+     *
+     * @param zone               The zone to build the route for.
+     * @param scheduleCategories Waste categories from the schedule day. Pass an empty
+     *                           list to include all categories (not recommended).
+     * @param driverLat          Driver's current latitude  (0.0 = unavailable).
+     * @param driverLng          Driver's current longitude (0.0 = unavailable).
      */
-    fun loadRouteForZone(zone: Zone, driverLat: Double = 0.0, driverLng: Double = 0.0) {
+    fun loadRouteForZone(
+        zone: Zone,
+        scheduleCategories: List<String> = emptyList(),
+        driverLat: Double = 0.0,
+        driverLng: Double = 0.0
+    ) {
         viewModelScope.launch {
             _activeRouteState.value = ActiveRouteUiState.Calculating
             try {
                 val result = mapRepository.calculateRouteForZone(
-                    zone      = zone,
-                    driverLat = driverLat,
-                    driverLng = driverLng
+                    zone               = zone,
+                    scheduleCategories = scheduleCategories,
+                    driverLat          = driverLat,
+                    driverLng          = driverLng
                 )
                 _activeRouteState.value = if (result.stops.isEmpty()) {
+                    // Tell the driver exactly why there are no stops — useful when the
+                    // category filter removed all pins in the zone.
+                    val categoryLabel = if (scheduleCategories.isEmpty()) "any category"
+                    else scheduleCategories.joinToString(", ")
                     ActiveRouteUiState.Error(
-                        "No pending Regular Pickup reports found in this zone."
+                        "No pending Regular Pickup reports found in this zone " +
+                                "for: $categoryLabel."
                     )
                 } else {
                     ActiveRouteUiState.Ready(

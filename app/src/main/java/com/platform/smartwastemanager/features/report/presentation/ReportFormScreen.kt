@@ -20,13 +20,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.platform.smartwastemanager.features.report.domain.ReportType
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 
 /**
  * Waste Report form screen.
  *
- * - Collects waste category, report type, and street name.
+ * - Collects waste category and street name only.
+ * - Report type is always "Regular Pickup" — the dropdown has been removed.
  * - Shows an AI scan summary card when the user arrived via the camera scan flow.
  * - Shows a low-confidence warning card when the model wasn't sure, prompting
  *   the user to re-scan or correct the category manually.
@@ -53,15 +53,14 @@ fun ReportFormScreen(
     val context = LocalContext.current
 
     // ---- Observe all ViewModel state ----
-    val uiState            by viewModel.uiState.collectAsStateWithLifecycle()
-    val selectedCategory   by viewModel.selectedCategory.collectAsStateWithLifecycle()
-    val aiLabels           by viewModel.aiLabels.collectAsStateWithLifecycle()
-    val isLowConfidence    by viewModel.isLowConfidence.collectAsStateWithLifecycle()
-    val selectedReportType by viewModel.selectedReportType.collectAsStateWithLifecycle()
-    val streetName         by viewModel.streetName.collectAsStateWithLifecycle()
-    val isLocating         by viewModel.isLocating.collectAsStateWithLifecycle()
-    // NEW — true when the user has confirmed a pin on the map picker
-    val isManualLocation   by viewModel.isManualLocation.collectAsStateWithLifecycle()
+    val uiState          by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val aiLabels         by viewModel.aiLabels.collectAsStateWithLifecycle()
+    val isLowConfidence  by viewModel.isLowConfidence.collectAsStateWithLifecycle()
+    val streetName       by viewModel.streetName.collectAsStateWithLifecycle()
+    val isLocating       by viewModel.isLocating.collectAsStateWithLifecycle()
+    // true when the user has confirmed a pin on the map picker
+    val isManualLocation by viewModel.isManualLocation.collectAsStateWithLifecycle()
 
     // ---- Location permissions ----
     val locationPermissions = rememberMultiplePermissionsState(
@@ -113,9 +112,8 @@ fun ReportFormScreen(
         )
     }
 
-    // ---- Dropdown expanded states ----
-    var categoryDropdownExpanded   by remember { mutableStateOf(false) }
-    var reportTypeDropdownExpanded by remember { mutableStateOf(false) }
+    // ---- Category dropdown expanded state ----
+    var categoryDropdownExpanded by remember { mutableStateOf(false) }
 
     // ---- Root layout ----
     Column(modifier = Modifier.fillMaxSize()) {
@@ -260,7 +258,6 @@ fun ReportFormScreen(
             // LOW CONFIDENCE WARNING CARD
             // Shown when the model scanned something but wasn't confident.
             // Only visible when aiLabels is also non-empty (i.e. a scan happened).
-            // Gives the user actionable tips and a shortcut back to the camera.
             // ================================================================
             AnimatedVisibility(visible = isLowConfidence && aiLabels.isNotEmpty()) {
                 Card(
@@ -388,42 +385,6 @@ fun ReportFormScreen(
             }
 
             // ================================================================
-            // REPORT TYPE DROPDOWN
-            // ================================================================
-            Text("Report Type", style = MaterialTheme.typography.labelLarge)
-            ExposedDropdownMenuBox(
-                expanded         = reportTypeDropdownExpanded,
-                onExpandedChange = { reportTypeDropdownExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value         = selectedReportType,
-                    onValueChange = {},
-                    readOnly      = true,
-                    label         = { Text("Report Type") },
-                    trailingIcon  = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(reportTypeDropdownExpanded)
-                    },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
-                )
-                ExposedDropdownMenu(
-                    expanded         = reportTypeDropdownExpanded,
-                    onDismissRequest = { reportTypeDropdownExpanded = false }
-                ) {
-                    ReportType.entries.forEach { type ->
-                        DropdownMenuItem(
-                            text    = { Text(type.displayName) },
-                            onClick = {
-                                viewModel.setReportType(type.displayName)
-                                reportTypeDropdownExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            // ================================================================
             // STREET NAME FIELD + MAP PICKER BUTTON + GPS REFRESH
             // Auto-populated by GPS + Geocoder. User can edit freely.
             // The map icon opens LocationPickerMapScreen for precise pin picking.
@@ -459,11 +420,8 @@ fun ReportFormScreen(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // ---- Map picker button (NEW) ----
+                // ---- Map picker button ----
                 // Opens LocationPickerMapScreen so the user can drop a pin.
-                // After confirming, setManualLocation() is called and isManualLocation
-                // becomes true, which prevents the LaunchedEffects above from
-                // overwriting the chosen coordinates.
                 IconButton(onClick = onNavigateToLocationPicker) {
                     Icon(
                         imageVector        = Icons.Default.Map,
@@ -512,7 +470,7 @@ fun ReportFormScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text  = "📅 Timestamp: Now\n🔴 Status: Pending\n👤 Reported by: Your account",
+                        text  = "📅 Timestamp: Now\n🔴 Status: Pending\n👤 Reported by: Your account\n🚛 Type: Regular Pickup",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -521,7 +479,6 @@ fun ReportFormScreen(
 
             // ================================================================
             // SUBMISSION ERROR MESSAGE
-            // Shown below the info card when the Firestore write fails.
             // ================================================================
             if (uiState is ReportUiState.Error) {
                 Text(
@@ -535,7 +492,6 @@ fun ReportFormScreen(
 
             // ================================================================
             // SUBMIT BUTTON
-            // Disabled while loading. Shows a spinner during submission.
             // ================================================================
             Button(
                 onClick  = { viewModel.submitReport(currentUserUid) },

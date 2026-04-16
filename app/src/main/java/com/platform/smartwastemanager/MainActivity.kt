@@ -29,6 +29,7 @@ import com.platform.smartwastemanager.core.navigation.Routes
 import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
+import com.platform.smartwastemanager.features.guide.presentation.GuideViewModel
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
@@ -56,7 +57,11 @@ fun SmartWasteManagerAppContent() {
     val navBackStackEntry  by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    // ---- ViewModels created ONCE at Activity level (Rule 3) ----
+    // =========================================================================
+    // ViewModels — created ONCE here at Activity level (Rule 3).
+    // NEVER call viewModel() inside AppNavHost or any composable destination.
+    // =========================================================================
+
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(app.container.authRepository)
     )
@@ -75,16 +80,30 @@ fun SmartWasteManagerAppContent() {
     val mapViewModel: MapViewModel = viewModel(
         factory = MapViewModel.factory(app.container.mapRepository)
     )
-    // RouteViewModel now takes BOTH mapRepository AND scheduleRepository (Rule 11)
     val routeViewModel: RouteViewModel = viewModel(
         factory = RouteViewModel.factory(
             app.container.mapRepository,
             app.container.scheduleRepository
         )
     )
+    val guideViewModel: GuideViewModel = viewModel(
+        factory = GuideViewModel.factory(app.container.guideRepository)
+    )
 
-    // Reload data after any auth event (Rule 5)
-    authViewModel.onAuthSuccess = { homeViewModel.loadSchedules() }
+    // =========================================================================
+    // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
+    //
+    // BUG FIX (Map pins not showing):
+    //   MapViewModel.init { loadPins() } fires BEFORE auth completes, so the
+    //   Firestore listener starts unauthenticated, gets rejected, and returns
+    //   an empty list that never refreshes. Calling mapViewModel.loadPins() here
+    //   restarts the listener once auth is confirmed, same pattern as schedules.
+    // =========================================================================
+    authViewModel.onAuthSuccess = {
+        homeViewModel.loadSchedules()   // reload schedules after auth
+        mapViewModel.loadPins()         // FIX: reload map pins after auth
+        guideViewModel.loadGuides()     // reload guides after auth
+    }
 
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriver           = currentUser?.role == UserRole.DRIVER
@@ -108,12 +127,14 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
         currentDestination?.route == Routes.MAP              -> "Map"
         currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
+        currentDestination?.route == Routes.GUIDE_EDITOR     -> "New Guide"
         currentDestination?.route == Routes.ZONE_MAP_PICKER  -> "Create Zone"
         currentDestination?.route == Routes.MANAGE_ZONES     -> "Global Zones"
         currentDestination?.route == Routes.ACTIVE_ROUTE     -> "Active Route"
-        // Pattern-match routes that have arguments
-        currentDestination?.route?.startsWith("home/zones/picker") == true -> "Assign Zone"
-        currentDestination?.route?.startsWith("home/zones/") == true       -> "Collection Zones"
+        currentDestination?.route?.startsWith("guides/editor/") == true -> "Edit Guide"
+        currentDestination?.route?.startsWith("guides/")              == true -> "Guide"
+        currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
+        currentDestination?.route?.startsWith("home/zones/")          == true -> "Collection Zones"
         else                                                  -> "Smart Waste Manager"
     }
 
@@ -148,6 +169,7 @@ fun SmartWasteManagerAppContent() {
                     TopAppBar(
                         title = { Text(screenTitle) },
                         actions = {
+                            // Toggle between driver/user view — visible only to drivers
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
@@ -177,6 +199,8 @@ fun SmartWasteManagerAppContent() {
                     )
 
                     // ---- Global "Viewing as User" banner (Rule 13) ----
+                    // Shown on EVERY screen when a driver is in user view.
+                    // This is the ONLY place this banner exists — no per-screen copies.
                     if (isViewingAsUser) {
                         Row(
                             modifier = Modifier
@@ -240,6 +264,7 @@ fun SmartWasteManagerAppContent() {
             reportViewModel  = reportViewModel,
             mapViewModel     = mapViewModel,
             routeViewModel   = routeViewModel,
+            guideViewModel   = guideViewModel,   // Rule 11: added here AND in AppNavHost
             modifier         = Modifier.padding(innerPadding)
         )
     }

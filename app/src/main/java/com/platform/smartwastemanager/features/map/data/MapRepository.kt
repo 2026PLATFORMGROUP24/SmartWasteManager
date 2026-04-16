@@ -155,25 +155,36 @@ class MapRepository {
      * driver's current position ([driverLat], [driverLng]).
      *
      * How it works:
-     *   1. Fetch all pending Regular Pickup reports inside the zone radius.
-     *   2. Prepend the driver's location as coordinate index 0 in the OSRM /trip call.
-     *      OSRM will then route: driver → nearest stop → all remaining stops in best order.
-     *   3. Strip the driver waypoint from the returned waypoints (index 0) — it is not a
-     *      real collection stop.
-     *   4. Re-order the stops using the waypoint_index values from OSRM.
-     *   5. Decode the road-following geometry polyline from the OSRM response.
+     *   1. Fetch all pending Regular Pickup reports inside the zone radius whose
+     *      [category] matches one of the [scheduleCategories] for the day.
+     *      If [scheduleCategories] is empty, ALL categories are included (fallback).
+     *   2. Pre-sort stops by straight-line (haversine) distance from the driver so
+     *      stop[0] is ALWAYS the geographically nearest — this is the reliable
+     *      nearest-first guarantee that does not depend on OSRM.
+     *   3. Prepend the driver's location as coordinate index 0 in the OSRM /trip
+     *      call with source=first, so OSRM routes driver → all stops in optimal order.
+     *   4. Pass approaches=curb for every waypoint so OSRM always routes to the
+     *      kerb/left side of the road — prevents the "wrong side of the road" problem.
+     *   5. Re-order stops using the waypoint_index values OSRM returns.
+     *   6. Decode the road-following GeoJSON geometry polyline.
      *
-     * Falls back to an unordered stop list with no polyline if OSRM is unreachable.
+     * Falls back to the haversine-sorted stop list with no polyline if OSRM is
+     * unreachable or returns a non-Ok response.
      *
-     * @param driverLat  Driver's current latitude  (0.0 = location unavailable, ignored).
-     * @param driverLng  Driver's current longitude (0.0 = location unavailable, ignored).
+     * @param scheduleCategories  Waste categories from the schedule day (e.g. ["Recyclable","Glass"]).
+     *                            Only reports matching one of these categories are included.
+     *                            Pass an empty list to include ALL categories.
+     * @param driverLat           Driver's current latitude  (0.0 = unavailable).
+     * @param driverLng           Driver's current longitude (0.0 = unavailable).
      */
     suspend fun calculateRouteForZone(
         zone: Zone,
+        scheduleCategories: List<String> = emptyList(),
         driverLat: Double = 0.0,
         driverLng: Double = 0.0
     ): RouteResult {
 
+        // --- 1. Fetch pending Regular Pickup reports ---
         val snapshot = firestore.collection("waste_reports")
             .whereEqualTo("status", "pending")
             .whereEqualTo("reportType", "Regular Pickup")
@@ -201,52 +212,79 @@ class MapRepository {
             ) <= zone.radiusMeters
         }
 
-        if (stopsInZone.isEmpty()) return RouteResult(stops = emptyList(), roadPolyline = emptyList())
+        // Filter by the schedule day's waste categories.
+        // If scheduleCategories is empty (safety fallback), keep all stops.
+        val filteredStops = if (scheduleCategories.isEmpty()) {
+            stopsInZone
+        } else {
+            stopsInZone.filter { stop ->
+                // Case-insensitive match so minor formatting differences don't break routing
+                scheduleCategories.any { cat ->
+                    cat.equals(stop.category, ignoreCase = true)
+                }
+            }
+        }
 
-        // Only one stop — no routing needed, but still sort nearest-first
-        if (stopsInZone.size == 1) return RouteResult(stops = stopsInZone, roadPolyline = emptyList())
+        if (filteredStops.isEmpty()) return RouteResult(stops = emptyList(), roadPolyline = emptyList())
+        if (filteredStops.size == 1) return RouteResult(stops = filteredStops, roadPolyline = emptyList())
 
-        // Decide whether we have a usable driver location
         val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
 
-        // Build the coordinate string for OSRM.
-        // If we have the driver's location, prepend it as the fixed "source" waypoint.
-        // OSRM source=first means it starts from coordinate[0] — the driver.
+        // --- 2. Pre-sort stops by haversine distance from the driver (or zone centre).
+        //        This is the reliable nearest-first guarantee that does not depend on OSRM.
+        val originLat = if (hasDriverLocation) driverLat else zone.centerLat
+        val originLng = if (hasDriverLocation) driverLng else zone.centerLng
+        val nearestFirstStops = filteredStops.sortedBy { stop ->
+            haversineDistanceMeters(
+                originLat, originLng,
+                stop.location.latitude, stop.location.longitude
+            )
+        }
+
+        // --- 3. Build OSRM coordinate string.
+        //        Prepend driver location as coordinate[0] if available (source=first).
         val coordsList = buildList {
-            if (hasDriverLocation) add("$driverLng,$driverLat")  // index 0 = driver
-            addAll(stopsInZone.map { "${it.location.longitude},${it.location.latitude}" })
+            if (hasDriverLocation) add("$driverLng,$driverLat")   // index 0 = driver
+            addAll(nearestFirstStops.map { "${it.location.longitude},${it.location.latitude}" })
         }
         val coords = coordsList.joinToString(";")
+
+        // --- 4. Build the approaches parameter.
+        //        "curb" tells OSRM to always approach from the left-hand side of the road
+        //        (the kerb), preventing the "wrong side of the road" routing bug.
+        //        One "curb" entry is needed per coordinate, including the driver origin.
+        val approaches = coordsList.indices.joinToString(";") { "curb" }
 
         return try {
             val resp = osrmService.getOptimisedTrip(
                 coordinates = coords,
                 roundtrip   = false,
                 source      = "first",
-                destination = "last"
+                destination = "last",
+                approaches  = approaches
             )
 
             if (resp.code == "Ok" && resp.waypoints.isNotEmpty()) {
 
-                // The waypoints list has (stopsInZone.size + 1) entries when driver location
-                // was included, or stopsInZone.size entries when it was not.
-                // waypointIndex tells us what position OSRM put each input coordinate at.
-                val driverOffset = if (hasDriverLocation) 1 else 0
-                val stopWaypoints = resp.waypoints.drop(driverOffset) // remove driver entry
+                // OSRM returns waypoints in INPUT order.
+                // waypointIndex = optimised visit position in the trip (0-based).
+                // With hasDriverLocation=true the driver gets waypointIndex 0 (source=first).
+                // We drop the driver waypoint then sort stops by waypointIndex.
+                val driverOffset  = if (hasDriverLocation) 1 else 0
+                val stopWaypoints = resp.waypoints.drop(driverOffset)
 
-                // Re-order stops using waypoint_index.
-                // waypointIndex for the stop waypoints starts at driverOffset in OSRM's
-                // ordering, so we subtract the offset so they sort as 0, 1, 2…
-                val orderedStops = stopsInZone
+                val orderedStops = nearestFirstStops
                     .mapIndexed { i, stop ->
-                        val waypointIndex = stopWaypoints.getOrNull(i)?.waypointIndex ?: i
-                        (waypointIndex - driverOffset) to stop
+                        // waypointIndex is 1-based for stops when driverOffset=1.
+                        // Subtract driverOffset to make it 0-based for sorting.
+                        val visitPosition = (stopWaypoints.getOrNull(i)?.waypointIndex
+                            ?: (i + driverOffset)) - driverOffset
+                        visitPosition to stop
                     }
                     .sortedBy { it.first }
                     .map { it.second }
 
-                // Decode the OSRM GeoJSON geometry → road-following LatLng polyline.
-                // Coordinates are [longitude, latitude] per GeoJSON spec.
+                // Decode the road-following GeoJSON polyline (coordinates = [lng, lat])
                 val roadPolyline = resp.trips.firstOrNull()
                     ?.geometry
                     ?.coordinates
@@ -257,31 +295,13 @@ class MapRepository {
                 RouteResult(stops = orderedStops, roadPolyline = roadPolyline)
 
             } else {
-                // OSRM gave a non-Ok response — fall back to distance-sorted stops, no polyline.
-                // If we have the driver's location, sort stops nearest-first manually.
-                val fallbackStops = if (hasDriverLocation) {
-                    stopsInZone.sortedBy { stop ->
-                        haversineDistanceMeters(
-                            driverLat, driverLng,
-                            stop.location.latitude, stop.location.longitude
-                        )
-                    }
-                } else stopsInZone
-
-                RouteResult(stops = fallbackStops, roadPolyline = emptyList())
+                // OSRM gave a non-Ok response — use our haversine nearest-first list.
+                RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
             }
-        } catch (e: Exception) {
-            // Network/parse failure — nearest-first fallback, no polyline
-            val fallbackStops = if (hasDriverLocation) {
-                stopsInZone.sortedBy { stop ->
-                    haversineDistanceMeters(
-                        driverLat, driverLng,
-                        stop.location.latitude, stop.location.longitude
-                    )
-                }
-            } else stopsInZone
 
-            RouteResult(stops = fallbackStops, roadPolyline = emptyList())
+        } catch (e: Exception) {
+            // Network/parse failure — haversine nearest-first is the safe fallback.
+            RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
         }
     }
 
@@ -295,7 +315,12 @@ class MapRepository {
     ): List<String> {
         return try {
             val coords   = "$fromLng,$fromLat;$toLng,$toLat"
-            val response = osrmService.getRoute(coords, steps = true)
+            // approaches=curb;curb — approach both the origin and destination from the kerb side
+            val response = osrmService.getRoute(
+                coordinates = coords,
+                steps       = true,
+                approaches  = "curb;curb"
+            )
             if (response.code != "Ok") return emptyList()
             val steps = response.routes.firstOrNull()?.legs?.firstOrNull()?.steps
                 ?: return emptyList()

@@ -9,7 +9,6 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.firestore.GeoPoint
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.report.data.ReportRepository
-import com.platform.smartwastemanager.features.report.domain.ReportType
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
 import com.platform.smartwastemanager.features.report.domain.WasteReport
@@ -29,8 +28,11 @@ sealed class ReportUiState {
 /**
  * ViewModel for the Waste Reporting feature.
  *
+ * All reports are always "Regular Pickup" — there is no report type selection.
+ * The reportType field is hardcoded and never exposed to the UI.
+ *
  * Manages:
- * - Form field values (category, reportType, streetName, location)
+ * - Form field values (category, streetName, location)
  * - TFLite classification from a camera bitmap
  * - GPS location fetching and reverse geocoding
  * - Manual map-based location picking
@@ -66,8 +68,9 @@ class ReportViewModel(
     private val _isLowConfidence = MutableStateFlow(false)
     val isLowConfidence: StateFlow<Boolean> = _isLowConfidence.asStateFlow()
 
-    private val _selectedReportType = MutableStateFlow(ReportType.REGULAR_PICKUP.displayName)
-    val selectedReportType: StateFlow<String> = _selectedReportType.asStateFlow()
+    // Report type is always "Regular Pickup" — not user-selectable.
+    // Stored as a private constant; never exposed as a StateFlow.
+    private val reportType = "Regular Pickup"
 
     // ---- Location state ----
 
@@ -104,7 +107,6 @@ class ReportViewModel(
     // ---- Setters ----
 
     fun setCategory(category: String) { _selectedCategory.value = category }
-    fun setReportType(type: String)   { _selectedReportType.value = type }
     fun setStreetName(name: String)   { _streetName.value = name }
 
     /**
@@ -179,13 +181,14 @@ class ReportViewModel(
 
     /**
      * Builds a WasteReport from current form state and submits it to Firestore.
+     * reportType is always "Regular Pickup" — never user-supplied.
      */
     fun submitReport(reportedByUid: String) {
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
             val report = WasteReport(
                 category   = _selectedCategory.value,
-                reportType = _selectedReportType.value,
+                reportType = reportType,           // always "Regular Pickup"
                 location   = _location.value,
                 streetName = _streetName.value,
                 reportedBy = reportedByUid,
@@ -202,15 +205,15 @@ class ReportViewModel(
 
     /** Resets all form fields back to their defaults after a successful submission. */
     fun resetForm() {
-        _selectedCategory.value   = WasteCategory.MIXED_WASTE.displayName
-        _aiLabels.value           = emptyList()
-        _aiDebugInfo.value        = ""
-        _isLowConfidence.value    = false
-        _selectedReportType.value = ReportType.REGULAR_PICKUP.displayName
-        _streetName.value         = ""
-        _location.value           = GeoPoint(0.0, 0.0)
-        _isManualLocation.value   = false
-        _uiState.value            = ReportUiState.Idle
+        _selectedCategory.value = WasteCategory.MIXED_WASTE.displayName
+        _aiLabels.value         = emptyList()
+        _aiDebugInfo.value      = ""
+        _isLowConfidence.value  = false
+        // reportType needs no reset — it is a fixed constant
+        _streetName.value       = ""
+        _location.value         = GeoPoint(0.0, 0.0)
+        _isManualLocation.value = false
+        _uiState.value          = ReportUiState.Idle
     }
 
     // ---- Manual DI factory ----

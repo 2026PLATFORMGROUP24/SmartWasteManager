@@ -24,7 +24,8 @@ import com.platform.smartwastemanager.features.map.domain.Zone
  *   - Unassign a zone from this day (zone is NOT deleted globally).
  *   - Tap "Assign Zone" FAB to open ZonePickerScreen and pick from global zones.
  *   - Tap "Manage Zones" to open ManageZonesScreen (global zone create/delete).
- *   - Tap "Load Route" on a zone to navigate to ActiveRouteScreen.
+ *   - Tap "Load Route" on a zone card to navigate to ActiveRouteScreen.
+ *     The route will only include report pins matching the schedule's waste categories.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,8 +119,8 @@ fun ZoneListScreen(
                 Spacer(modifier = Modifier.width(4.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text  = "${schedule.dayOfWeek} — Collection Zones",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text       = "${schedule.dayOfWeek} — Collection Zones",
+                        style      = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
@@ -127,6 +128,38 @@ fun ZoneListScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            // ---- Category filter info banner ----
+            // Shows the driver exactly which waste categories will be used to
+            // filter pins when they tap "Load Route" on any zone below.
+            if (schedule.wasteCategories.isNotEmpty()) {
+                Card(
+                    colors   = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        modifier          = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.FilterList,
+                            contentDescription = null,
+                            tint               = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier           = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text  = "Route pins filtered to: ${schedule.wasteCategories.joinToString(", ")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
             }
 
@@ -170,10 +203,10 @@ fun ZoneListScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
-                                    imageVector = Icons.Default.AddLocation,
+                                    imageVector        = Icons.Default.AddLocation,
                                     contentDescription = null,
-                                    tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(64.dp)
+                                    tint               = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier           = Modifier.size(64.dp)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
@@ -195,10 +228,11 @@ fun ZoneListScreen(
                         ) {
                             items(state.zones, key = { it.id }) { zone ->
                                 AssignedZoneCard(
-                                    zone          = zone,
-                                    actionState   = actionState,
-                                    onLoadRoute   = { onLoadRoute(zone) },
-                                    onUnassign    = { zoneToUnassign = zone }
+                                    zone              = zone,
+                                    actionState       = actionState,
+                                    scheduleCategories = schedule.wasteCategories,
+                                    onLoadRoute       = { onLoadRoute(zone) },
+                                    onUnassign        = { zoneToUnassign = zone }
                                 )
                             }
                         }
@@ -211,12 +245,14 @@ fun ZoneListScreen(
 
 /**
  * Card for a zone assigned to the current schedule day.
- * Shows zone name, radius, coordinates, a Load Route button, and an unassign button.
+ * Shows zone name, radius, coordinates, which categories will be routed,
+ * a Load Route button, and an unassign button.
  */
 @Composable
 private fun AssignedZoneCard(
     zone: Zone,
     actionState: RouteActionState,
+    scheduleCategories: List<String>,
     onLoadRoute: () -> Unit,
     onUnassign: () -> Unit
 ) {
@@ -274,6 +310,16 @@ private fun AssignedZoneCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Show which categories will be included in the route for this zone
+            if (scheduleCategories.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text  = "🗂️ ${scheduleCategories.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

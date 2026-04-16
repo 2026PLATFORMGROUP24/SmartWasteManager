@@ -1,26 +1,269 @@
 package com.platform.smartwastemanager.features.guide.presentation
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
- * Placeholder Guides screen — will be fully implemented in Phase 5.
+ * Guide list screen — shows all recycling guides as scrollable cards.
+ *
+ * User view  : tap a card to read the full guide.
+ * Driver view: FAB to create a guide; each card has Edit and Delete icons.
+ *
+ * @param isDriverInDriverView True when a driver is in driver view (shows edit/delete controls).
+ * @param onNavigateToDetail   Navigate to the detail screen for the tapped guide.
+ * @param onNavigateToEditor   Navigate to the editor in create mode.
+ * @param onNavigateToEditorEdit Navigate to the editor in edit mode for the given guide ID.
  */
 @Composable
-fun GuideListScreen() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "📚 Recycling Guides\nBlog-style articles\n(Coming in Phase 5)",
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center
+fun GuideListScreen(
+    viewModel: GuideViewModel,
+    isDriverInDriverView: Boolean,
+    onNavigateToDetail: (String) -> Unit,
+    onNavigateToEditor: () -> Unit,
+    onNavigateToEditorEdit: (String) -> Unit
+) {
+    val uiState       by viewModel.listUiState.collectAsStateWithLifecycle()
+    val deleteSuccess by viewModel.deleteSuccess.collectAsStateWithLifecycle()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val dateFormat        = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+
+    // Track which guide the driver wants to delete (null = no dialog open)
+    var guideToDelete by remember { mutableStateOf<RecyclingGuide?>(null) }
+
+    // Show a snackbar when a guide has been deleted
+    LaunchedEffect(deleteSuccess) {
+        if (deleteSuccess) {
+            snackbarHostState.showSnackbar("Guide deleted")
+            viewModel.resetDeleteSuccess()
+        }
+    }
+
+    // ---- Delete confirmation dialog ----
+    if (guideToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { guideToDelete = null },
+            title = { Text("Delete Guide?") },
+            text  = {
+                Text("Delete \"${guideToDelete!!.title}\"? This cannot be undone and will also remove its images.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteGuide(guideToDelete!!.id)
+                    guideToDelete = null
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { guideToDelete = null }) { Text("Cancel") }
+            }
         )
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            // Only show the create FAB to drivers in driver view
+            if (isDriverInDriverView) {
+                FloatingActionButton(
+                    onClick        = onNavigateToEditor,
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Create new guide")
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            when (val state = uiState) {
+
+                is GuideListUiState.Loading -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+
+                is GuideListUiState.Error -> {
+                    Column(
+                        modifier            = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Could not load guides", color = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = { viewModel.loadGuides() }) { Text("Retry") }
+                    }
+                }
+
+                is GuideListUiState.Success -> {
+                    if (state.guides.isEmpty()) {
+                        // Empty state message
+                        Column(
+                            modifier            = Modifier
+                                .align(Alignment.Center)
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("📚", style = MaterialTheme.typography.displayMedium)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text  = if (isDriverInDriverView)
+                                    "No guides yet.\nTap + to create the first one."
+                                else
+                                    "No recycling guides available yet.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier            = Modifier.fillMaxSize(),
+                            contentPadding      = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(state.guides, key = { it.id }) { guide ->
+                                GuideListCard(
+                                    guide                = guide,
+                                    isDriverInDriverView = isDriverInDriverView,
+                                    dateFormat           = dateFormat,
+                                    onClick              = { onNavigateToDetail(guide.id) },
+                                    onEdit               = { onNavigateToEditorEdit(guide.id) },
+                                    onDelete             = { guideToDelete = guide }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =====================================================================
+// GuideListCard — one card shown in the guide list
+// =====================================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GuideListCard(
+    guide: RecyclingGuide,
+    isDriverInDriverView: Boolean,
+    dateFormat: SimpleDateFormat,
+    onClick:  () -> Unit,
+    onEdit:   () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        onClick   = onClick,
+        modifier  = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // Title row + action buttons
+            Row(
+                modifier          = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text       = guide.title,
+                        style      = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onSurface,
+                        maxLines   = 2,
+                        overflow   = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // 2-line preview: strip Markdown headers so the preview reads cleanly
+                    val preview = remember(guide.contentMarkdown) {
+                        guide.contentMarkdown
+                            .lines()
+                            .filter { line -> line.isNotBlank() && !line.startsWith("#") }
+                            .joinToString(" ")
+                            .take(130)
+                    }
+                    if (preview.isNotEmpty()) {
+                        Text(
+                            text     = preview,
+                            style    = MaterialTheme.typography.bodySmall,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Edit / Delete buttons — driver view only
+                if (isDriverInDriverView) {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit guide",
+                            tint               = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete guide",
+                            tint               = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Bottom row: image badge + updated date
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                if (guide.imageUrls.isNotEmpty()) {
+                    SuggestionChip(
+                        onClick = onClick,
+                        label   = {
+                            Text(
+                                "🖼️ ${guide.imageUrls.size} " +
+                                        "image${if (guide.imageUrls.size != 1) "s" else ""}"
+                            )
+                        }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp)) // keeps the date right-aligned
+                }
+                Text(
+                    text  = "Updated ${dateFormat.format(guide.updatedAt.toDate())}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

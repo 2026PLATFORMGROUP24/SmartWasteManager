@@ -16,7 +16,10 @@ import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
 import com.platform.smartwastemanager.features.auth.presentation.LoginScreen
 import com.platform.smartwastemanager.features.auth.presentation.ResetPasswordScreen
 import com.platform.smartwastemanager.features.auth.presentation.SignUpScreen
+import com.platform.smartwastemanager.features.guide.presentation.GuideDetailScreen
+import com.platform.smartwastemanager.features.guide.presentation.GuideEditorScreen
 import com.platform.smartwastemanager.features.guide.presentation.GuideListScreen
+import com.platform.smartwastemanager.features.guide.presentation.GuideViewModel
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 import com.platform.smartwastemanager.features.home.presentation.HomeScreen
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
@@ -36,6 +39,14 @@ import com.platform.smartwastemanager.features.report.presentation.ReportViewMod
 import com.platform.smartwastemanager.features.report.presentation.ScanScreen
 import kotlinx.coroutines.launch
 
+/**
+ * Central navigation host for the app.
+ *
+ * Rule 3  : All ViewModels are created in MainActivity and passed here as parameters.
+ *           viewModel() is NEVER called inside this composable or any destination.
+ * Rule 11 : AppNavHost and MainActivity signatures must always be in sync.
+ *           Any parameter added here must also be added to the call-site in MainActivity.
+ */
 @Composable
 fun AppNavHost(
     navController: NavHostController,
@@ -45,12 +56,15 @@ fun AppNavHost(
     reportViewModel: ReportViewModel,
     mapViewModel: MapViewModel,
     routeViewModel: RouteViewModel,
+    guideViewModel: GuideViewModel,       // Phase 5
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
     val isDriverViewActive by homeViewModel.isDriverViewActive.collectAsStateWithLifecycle()
-    // Collect schedules here so we can look up a CollectionDay by ID when entering ZoneListScreen
     val schedules          by homeViewModel.schedules.collectAsStateWithLifecycle()
+
+    // Guides list — collected here so ScheduleManagementScreen can use it for the guide picker
+    val guides             by guideViewModel.guides.collectAsStateWithLifecycle()
 
     val isDriver             = currentUser?.role == UserRole.DRIVER
     val isDriverInDriverView = isDriver && isDriverViewActive
@@ -61,7 +75,7 @@ fun AppNavHost(
         modifier         = modifier
     ) {
 
-        // ==================== AUTH ====================
+        // ======================== AUTH ========================
 
         composable(Routes.LOGIN) {
             LoginScreen(
@@ -91,7 +105,7 @@ fun AppNavHost(
             )
         }
 
-        // ==================== HOME ====================
+        // ======================== HOME ========================
 
         composable(Routes.HOME) {
             HomeScreen(
@@ -112,15 +126,13 @@ fun AppNavHost(
             ScheduleManagementScreen(
                 viewModel      = homeViewModel,
                 driverUid      = currentUser?.uid ?: "",
+                guides         = guides,           // Phase 5: pass real guides for the dropdown
                 onNavigateBack = { navController.popBackStack() }
             )
         }
 
-        // ==================== ZONES ====================
+        // ======================== ZONES ========================
 
-        // ZoneListScreen — shows zones assigned to a specific schedule day.
-        // We look up the full CollectionDay from the already-loaded schedules list
-        // so we can pass zoneIds into the screen. If not found yet, fall back to a stub.
         composable(
             route     = Routes.ZONE_LIST,
             arguments = listOf(
@@ -131,17 +143,11 @@ fun AppNavHost(
             val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
             val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
 
-            // Find the matching CollectionDay. Fall back to a stub if schedules haven't
-            // loaded yet — ZoneListScreen will call loadZonesForSchedule() and handle it.
             val schedule = schedules.find { it.id == scheduleDayId }
                 ?: CollectionDay(id = scheduleDayId, dayOfWeek = scheduleDayName)
 
-            // Coroutine scope used to fetch GPS location before launching the route.
-            // rememberCoroutineScope() is safe here — this is a @Composable lambda context.
             val zoneListScope = rememberCoroutineScope()
-
-            // navController.context resolves to the Activity context, safe for LocationHelper.
-            val context = navController.context
+            val context       = navController.context
 
             ZoneListScreen(
                 viewModel      = routeViewModel,
@@ -154,34 +160,20 @@ fun AppNavHost(
                 },
                 onManageZones  = { navController.navigate(Routes.MANAGE_ZONES) },
                 onLoadRoute    = { zone ->
-                    // Launch a coroutine to get current GPS location BEFORE asking OSRM
-                    // to calculate the route, so the first stop is always the nearest one
-                    // to the driver's physical position.
                     zoneListScope.launch {
-                        val gp = try {
-                            LocationHelper.getCurrentLocation(context)
-                        } catch (e: Exception) {
-                            null
-                        }
-                        val driverLat = gp?.latitude  ?: 0.0
-                        val driverLng = gp?.longitude ?: 0.0
-
-                        // Calculate the route with driver location (or 0.0/0.0 fallback)
+                        val gp = try { LocationHelper.getCurrentLocation(context) }
+                        catch (e: Exception) { null }
                         routeViewModel.loadRouteForZone(
                             zone      = zone,
-                            driverLat = driverLat,
-                            driverLng = driverLng
+                            driverLat = gp?.latitude  ?: 0.0,
+                            driverLng = gp?.longitude ?: 0.0
                         )
-
-                        // Navigate to the active route screen after kicking off the calculation.
-                        // The screen will show "Calculating…" while loadRouteForZone runs.
                         navController.navigate(Routes.buildActiveRoute(zone.name))
                     }
                 }
             )
         }
 
-        // ZonePickerScreen — pick from all global zones to assign to a schedule day.
         composable(
             route     = Routes.ZONE_PICKER,
             arguments = listOf(
@@ -189,10 +181,8 @@ fun AppNavHost(
                 navArgument("scheduleDayName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val scheduleDayId   = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
-            val scheduleDayName = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
-
-            // Pass current zoneIds so the picker can mark already-assigned zones
+            val scheduleDayId      = backStackEntry.arguments?.getString("scheduleDayId")   ?: ""
+            val scheduleDayName    = backStackEntry.arguments?.getString("scheduleDayName") ?: ""
             val alreadyAssignedIds = schedules.find { it.id == scheduleDayId }?.zoneIds
                 ?: emptyList()
 
@@ -204,7 +194,6 @@ fun AppNavHost(
             )
         }
 
-        // ManageZonesScreen — global zone CRUD (create / delete global zones).
         composable(Routes.MANAGE_ZONES) {
             ManageZonesScreen(
                 viewModel      = routeViewModel,
@@ -213,7 +202,6 @@ fun AppNavHost(
             )
         }
 
-        // ZoneMapPickerScreen — map UI for drawing a brand-new global zone.
         composable(Routes.ZONE_MAP_PICKER) {
             ZoneMapPickerScreen(
                 viewModel      = routeViewModel,
@@ -222,9 +210,6 @@ fun AppNavHost(
             )
         }
 
-        // ActiveRouteScreen — turn-by-turn driving route execution.
-        // loadRouteForZone() is already in-flight (started from onLoadRoute above)
-        // so this screen opens directly in the Calculating state.
         composable(
             route     = Routes.ACTIVE_ROUTE,
             arguments = listOf(navArgument("zoneName") { type = NavType.StringType })
@@ -238,7 +223,7 @@ fun AppNavHost(
             )
         }
 
-        // ==================== REPORT ====================
+        // ======================== REPORT ========================
 
         composable(Routes.REPORT) {
             ReportScreen(
@@ -280,7 +265,7 @@ fun AppNavHost(
             )
         }
 
-        // ==================== MAP ====================
+        // ======================== MAP ========================
 
         composable(Routes.MAP) {
             MapScreen(
@@ -290,10 +275,74 @@ fun AppNavHost(
             )
         }
 
-        // ==================== GUIDES ====================
+        // ======================== GUIDES (Phase 5) ========================
 
+        // Guide list — all users
         composable(Routes.GUIDES) {
-            GuideListScreen()
+            GuideListScreen(
+                viewModel              = guideViewModel,
+                isDriverInDriverView   = isDriverInDriverView,
+                onNavigateToDetail     = { guideId ->
+                    navController.navigate(Routes.buildGuideDetail(guideId))
+                },
+                onNavigateToEditor     = { navController.navigate(Routes.GUIDE_EDITOR) },
+                onNavigateToEditorEdit = { guideId ->
+                    navController.navigate(Routes.buildGuideEditor(guideId))
+                }
+            )
+        }
+
+        // Guide detail — all users
+        composable(
+            route     = Routes.GUIDE_DETAIL,
+            arguments = listOf(navArgument("guideId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val guideId = backStackEntry.arguments?.getString("guideId") ?: ""
+            GuideDetailScreen(
+                viewModel            = guideViewModel,
+                guideId              = guideId,
+                isDriverInDriverView = isDriverInDriverView,
+                onNavigateBack       = { navController.popBackStack() },
+                onNavigateToEdit     = { id ->
+                    navController.navigate(Routes.buildGuideEditor(id))
+                }
+            )
+        }
+
+        // Guide editor — create mode (no guideId argument)
+        composable(Routes.GUIDE_EDITOR) {
+            GuideEditorScreen(
+                viewModel      = guideViewModel,
+                guideId        = null,                    // null = create new guide
+                currentUserUid = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() },
+                onSaveSuccess  = { newId ->
+                    // After creating, navigate directly to the new guide's detail screen
+                    navController.navigate(Routes.buildGuideDetail(newId)) {
+                        popUpTo(Routes.GUIDE_EDITOR) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Guide editor — edit mode (guideId argument present)
+        composable(
+            route     = Routes.GUIDE_EDITOR_EDIT,
+            arguments = listOf(navArgument("guideId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val guideId = backStackEntry.arguments?.getString("guideId") ?: ""
+            GuideEditorScreen(
+                viewModel      = guideViewModel,
+                guideId        = guideId,                 // non-null = edit existing guide
+                currentUserUid = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() },
+                onSaveSuccess  = { updatedId ->
+                    // Return to the detail screen after a successful edit
+                    navController.navigate(Routes.buildGuideDetail(updatedId)) {
+                        popUpTo(Routes.buildGuideEditor(guideId)) { inclusive = true }
+                    }
+                }
+            )
         }
     }
 }

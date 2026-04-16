@@ -1,207 +1,178 @@
 package com.platform.smartwastemanager.features.home.presentation
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.platform.smartwastemanager.core.util.Constants
+import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 
-// ─────────────────────────────────────────────────────────
-// Helper — formats a hour (0–23) and minute (0–59) to "HH:mm"
-// ─────────────────────────────────────────────────────────
-private fun formatTime(hour: Int, minute: Int): String =
-    "%02d:%02d".format(hour, minute)
+// ---- All 8 waste categories shown as checkboxes (Rule 15) ----
+private val ALL_CATEGORIES = listOf(
+    "Recyclable", "Organic", "Paper", "Glass",
+    "Plastic", "Metal", "Hazardous", "Mixed Waste"
+)
 
-// ─────────────────────────────────────────────────────────
-// Helper — parses "HH:mm" back to a Pair(hour, minute).
-// Returns null if the string is blank or malformed.
-// ─────────────────────────────────────────────────────────
-private fun parseTime(value: String): Pair<Int, Int>? {
-    val parts = value.split(":")
-    if (parts.size != 2) return null
-    val h = parts[0].toIntOrNull() ?: return null
-    val m = parts[1].toIntOrNull() ?: return null
-    return Pair(h, m)
-}
+// ---- Days available in the day-of-week dropdown ----
+private val DAYS_OF_WEEK = listOf(
+    "Monday", "Tuesday", "Wednesday", "Thursday",
+    "Friday", "Saturday", "Sunday"
+)
 
 /**
- * A reusable Material 3 time-picker dialog.
+ * Schedule management screen — lets drivers create, edit, and delete collection schedule entries.
  *
- * Material 3 ships a TimePicker composable but no ready-made dialog wrapper,
- * so we build a thin one here using Dialog + a Card to give it a surface.
+ * Phase 5 upgrade: the "Linked Guide" field is now a dropdown of real guide titles
+ * (previously it was a raw text field requiring the driver to know the Firestore ID).
  *
- * @param title       Label shown above the clock face (e.g. "Select Start Time").
- * @param initialHour Hour to pre-select when the dialog opens (0–23).
- * @param initialMinute Minute to pre-select (0–59).
- * @param onDismiss   Called when the user cancels without confirming.
- * @param onConfirm   Called with the chosen hour and minute.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TimePickerDialog(
-    title: String,
-    initialHour: Int,
-    initialMinute: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (hour: Int, minute: Int) -> Unit
-) {
-    // TimePickerState holds the user's current selection inside the clock face
-    val timePickerState = rememberTimePickerState(
-        initialHour = initialHour,
-        initialMinute = initialMinute,
-        is24Hour = true   // 24-hour clock; set false for AM/PM if preferred
-    )
-
-    // Use Dialog (not AlertDialog) so we can fully control the layout/size
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                // Title text
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // The actual clock-face picker
-                TimePicker(state = timePickerState)
-
-                // Cancel / OK buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    TextButton(onClick = {
-                        onConfirm(timePickerState.hour, timePickerState.minute)
-                    }) {
-                        Text("OK")
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────
-// ScheduleManagementScreen
-// ─────────────────────────────────────────────────────────
-
-/**
- * Schedule Management screen — visible to drivers only.
- * Allows drivers to Create / Edit / Delete schedule entries.
+ * Rules followed:
+ *  14 — wasteCategories is always List<String>
+ *  15 — categories shown as multi-select checkboxes
+ *  16 — dialog wrapped in verticalScroll for small screens
+ *
+ * @param viewModel      HomeViewModel that owns schedule state.
+ * @param driverUid      UID of the signed-in driver (used as createdBy on new entries).
+ * @param guides         All recycling guides — used to populate the guide picker dropdown.
+ * @param onNavigateBack Pop back to the home screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleManagementScreen(
     viewModel: HomeViewModel,
     driverUid: String,
+    guides: List<RecyclingGuide>,
     onNavigateBack: () -> Unit
 ) {
+    // ---- Observe ViewModel state using the CORRECT property names ----
+    val uiState   by viewModel.uiState.collectAsStateWithLifecycle()   // HomeUiState
     val schedules by viewModel.schedules.collectAsStateWithLifecycle()
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var showDialog by remember { mutableStateOf(false) }
-    var editingSchedule by remember { mutableStateOf<CollectionDay?>(null) }
-    var scheduleToDelete by remember { mutableStateOf<CollectionDay?>(null) }
+    // Which entry is being edited / created (null = no dialog open)
+    // An entry with a blank id is the "create new" sentinel
+    var dialogEntry   by remember { mutableStateOf<CollectionDay?>(null) }
+    var entryToDelete by remember { mutableStateOf<CollectionDay?>(null) }
 
+    // Show a snackbar for errors and successes reported by the ViewModel
     LaunchedEffect(uiState) {
         when (uiState) {
-            is HomeUiState.Success -> {
-                snackbarHostState.showSnackbar((uiState as HomeUiState.Success).message)
-                viewModel.resetUiState()
-            }
             is HomeUiState.Error -> {
                 snackbarHostState.showSnackbar((uiState as HomeUiState.Error).message)
                 viewModel.resetUiState()
             }
-            else -> {}
+            is HomeUiState.Success -> {
+                snackbarHostState.showSnackbar((uiState as HomeUiState.Success).message)
+                viewModel.resetUiState()
+            }
+            else -> Unit
         }
     }
 
-    // ---- Create / Edit Dialog ----
-    if (showDialog) {
-        ScheduleDialog(
-            existingSchedule = editingSchedule,
-            onDismiss = { showDialog = false; editingSchedule = null },
-            onConfirm = { day, categories, timeRange, guideId ->
-                if (editingSchedule != null) {
-                    viewModel.updateSchedule(
-                        editingSchedule!!.copy(
-                            dayOfWeek = day,
-                            wasteCategories = categories,
-                            collectionTimeRange = timeRange,
-                            linkedGuideId = guideId
-                        )
-                    )
-                } else {
-                    viewModel.createSchedule(
-                        dayOfWeek = day,
-                        wasteCategories = categories,
-                        collectionTimeRange = timeRange,
-                        linkedGuideId = guideId,
-                        driverUid = driverUid
-                    )
-                }
-                showDialog = false
-                editingSchedule = null
-            }
-        )
-    }
-
-    // ---- Delete Confirmation Dialog ----
-    if (scheduleToDelete != null) {
+    // ---- Delete confirmation dialog ----
+    if (entryToDelete != null) {
         AlertDialog(
-            onDismissRequest = { scheduleToDelete = null },
-            title = { Text("Delete Schedule") },
-            text = {
+            onDismissRequest = { entryToDelete = null },
+            title = { Text("Delete Schedule?") },
+            text  = {
                 Text(
-                    "Delete the ${scheduleToDelete!!.dayOfWeek} schedule " +
-                            "(${scheduleToDelete!!.wasteCategories.joinToString()})?"
+                    "Delete the ${entryToDelete!!.dayOfWeek} entry? " +
+                            "This cannot be undone."
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteSchedule(scheduleToDelete!!.id)
-                    scheduleToDelete = null
+                    viewModel.deleteSchedule(entryToDelete!!.id)
+                    entryToDelete = null
                 }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { scheduleToDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { entryToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ---- Create / Edit dialog ----
+    if (dialogEntry != null) {
+        ScheduleDialog(
+            existingEntry = dialogEntry!!,
+            guides        = guides,
+            onDismiss     = { dialogEntry = null },
+            onSave        = { day, categories, timeRange, linkedGuideId, entryId ->
+                if (entryId.isBlank()) {
+                    // CREATE — call createSchedule() with individual params
+                    viewModel.createSchedule(
+                        dayOfWeek           = day,
+                        wasteCategories     = categories,
+                        collectionTimeRange = timeRange,
+                        linkedGuideId       = linkedGuideId,
+                        driverUid           = driverUid
+                    )
+                } else {
+                    // UPDATE — copy the existing entry and call updateSchedule()
+                    viewModel.updateSchedule(
+                        dialogEntry!!.copy(
+                            dayOfWeek           = day,
+                            wasteCategories     = categories,
+                            collectionTimeRange = timeRange,
+                            linkedGuideId       = linkedGuideId
+                        )
+                    )
+                }
+                dialogEntry = null
             }
         )
     }
@@ -212,12 +183,12 @@ fun ScheduleManagementScreen(
                 title = { Text("Manage Schedules") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor             = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor          = MaterialTheme.colorScheme.onPrimaryContainer,
                     navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
@@ -225,43 +196,57 @@ fun ScheduleManagementScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { editingSchedule = null; showDialog = true },
+                onClick        = { dialogEntry = CollectionDay() }, // blank id = create mode
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add schedule",
-                    tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Default.Add, contentDescription = "Add schedule entry")
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp)
         ) {
-            Text(
-                text = "Current Schedules",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 16.dp)
-            )
-
-            if (schedules.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No schedules yet. Tap + to add one.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            when {
+                // Loading and no data yet — show a spinner
+                uiState is HomeUiState.Loading && schedules.isEmpty() -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(schedules) { schedule ->
-                        ManageScheduleCard(
-                            schedule = schedule,
-                            onEdit = { editingSchedule = schedule; showDialog = true },
-                            onDelete = { scheduleToDelete = schedule }
+
+                // Loaded but empty — show a helpful message
+                schedules.isEmpty() -> {
+                    Column(
+                        modifier            = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("📅", style = MaterialTheme.typography.displayMedium)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text  = "No schedule entries yet.\nTap + to add the first one.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                // Data available — show the list
+                else -> {
+                    LazyColumn(
+                        modifier            = Modifier.fillMaxSize(),
+                        contentPadding      = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(schedules, key = { it.id }) { entry ->
+                            ScheduleManagementCard(
+                                entry    = entry,
+                                guides   = guides,
+                                onEdit   = { dialogEntry = entry },
+                                onDelete = { entryToDelete = entry }
+                            )
+                        }
                     }
                 }
             }
@@ -269,354 +254,345 @@ fun ScheduleManagementScreen(
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// ManageScheduleCard
-// ─────────────────────────────────────────────────────────
+// =====================================================================
+// ScheduleManagementCard — one row in the management list
+// =====================================================================
 
-/** Management list card — shows day, time range, categories, guide status. */
 @Composable
-fun ManageScheduleCard(
-    schedule: CollectionDay,
+private fun ScheduleManagementCard(
+    entry: CollectionDay,
+    guides: List<RecyclingGuide>,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // Resolve the linked guide title for display on the card
+    val linkedGuideTitle = remember(entry.linkedGuideId, guides) {
+        guides.find { it.id == entry.linkedGuideId }?.title
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier  = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Row(
-            modifier = Modifier
+            modifier          = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // Day of week
                 Text(
-                    text = schedule.dayOfWeek,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    text       = entry.dayOfWeek,
+                    style      = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onSurface
                 )
-                if (!schedule.collectionTimeRange.isNullOrBlank()) {
+                // Collection time range (if set)
+                if (!entry.collectionTimeRange.isNullOrBlank()) {
                     Text(
-                        text = "🕐 ${schedule.collectionTimeRange}",
+                        text  = "🕐 ${entry.collectionTimeRange}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (schedule.wasteCategories.isNotEmpty()) {
+                // Waste categories
+                if (entry.wasteCategories.isNotEmpty()) {
                     Text(
-                        text = schedule.wasteCategories.joinToString(", "),
+                        text  = entry.wasteCategories.joinToString(", "),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (schedule.linkedGuideId != null) {
-                    Text(
-                        text = "Guide linked ✓",
-                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+                // Linked guide title (if any)
+                if (linkedGuideTitle != null) {
+                    Text(
+                        text  = "📖 $linkedGuideTitle",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
             }
+
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit",
-                    tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit entry",
+                    tint               = MaterialTheme.colorScheme.primary
+                )
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error)
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete entry",
+                    tint               = MaterialTheme.colorScheme.error
+                )
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// ScheduleDialog — Create / Edit a schedule entry
-// ─────────────────────────────────────────────────────────
+// =====================================================================
+// ScheduleDialog — create / edit dialog
+// =====================================================================
 
 /**
- * Dialog for creating or editing a schedule entry.
+ * The onSave callback passes individual values instead of a CollectionDay object.
+ * This avoids the need for ScheduleManagementScreen to know whether to call
+ * createSchedule() or updateSchedule() inside the dialog itself.
  *
- * Time range uses Material 3 TimePicker dialogs (clock-face UI) instead of
- * plain text fields. Tapping "Select Start Time" or "Select End Time" opens
- * a dedicated clock-face picker dialog.
+ * @param onSave  (dayOfWeek, categories, timeRange, linkedGuideId, existingId)
+ *                existingId is blank when creating a new entry.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleDialog(
-    existingSchedule: CollectionDay?,
+private fun ScheduleDialog(
+    existingEntry: CollectionDay,
+    guides: List<RecyclingGuide>,
     onDismiss: () -> Unit,
-    onConfirm: (
-        day: String,
+    onSave: (
+        dayOfWeek: String,
         categories: List<String>,
         timeRange: String?,
-        guideId: String?
+        linkedGuideId: String?,
+        existingId: String
     ) -> Unit
 ) {
-    val allCategories = listOf(
-        "Recyclable", "Organic", "Paper", "Glass",
-        "Plastic", "Metal", "Hazardous", "Mixed Waste"
-    )
+    val isEditMode = existingEntry.id.isNotBlank()
 
-    // ---- Day of week state ----
-    var selectedDay by remember { mutableStateOf(existingSchedule?.dayOfWeek ?: "") }
-    var dayDropdownExpanded by remember { mutableStateOf(false) }
+    // ---- Day of week ----
+    var selectedDay     by remember { mutableStateOf(existingEntry.dayOfWeek.ifBlank { DAYS_OF_WEEK.first() }) }
+    var dayDropdownOpen by remember { mutableStateOf(false) }
 
-    // ---- Category multi-select state ----
-    var selectedCategories by remember {
-        mutableStateOf<Set<String>>(
-            existingSchedule?.wasteCategories?.toSet() ?: emptySet()
-        )
-    }
-    var categoriesExpanded by remember { 
-        mutableStateOf(existingSchedule?.wasteCategories?.isNotEmpty() == true) 
+    // ---- Waste categories — use a plain MutableList wrapped in remember (Rule 15) ----
+    // We avoid mutableStateSetOf to prevent the import/inference issues.
+    val selectedCategories = remember {
+        existingEntry.wasteCategories.toMutableStateList()
     }
 
-    // ---- Time range state ----
-    // Parse the existing "HH:mm – HH:mm" string back into separate hour/minute values.
-    // If null or blank, default to 07:00 – 17:00 as a sensible starting point.
-    val existingRange = existingSchedule?.collectionTimeRange
-    val existingStart = existingRange?.substringBefore("–")?.trim()
-    val existingEnd = existingRange?.substringAfter("–")?.trim()
-
-    var startHour by remember { mutableStateOf(parseTime(existingStart ?: "")?.first ?: 7) }
-    var startMinute by remember { mutableStateOf(parseTime(existingStart ?: "")?.second ?: 0) }
-    var endHour by remember { mutableStateOf(parseTime(existingEnd ?: "")?.first ?: 17) }
-    var endMinute by remember { mutableStateOf(parseTime(existingEnd ?: "")?.second ?: 0) }
-
-    // Controls whether a time range is included at all
-    var includeTimeRange by remember { mutableStateOf(!existingRange.isNullOrBlank()) }
-
-    // Controls which time picker dialog is visible (null = none, "start" or "end")
-    var activeTimePicker by remember { mutableStateOf<String?>(null) }
-
-    // ---- Guide ID state ----
-    var guideId by remember { mutableStateOf(existingSchedule?.linkedGuideId ?: "") }
-
-    // ---- Time picker dialogs (rendered outside AlertDialog to avoid nesting issues) ----
-    if (activeTimePicker == "start") {
-        TimePickerDialog(
-            title = "Select Start Time",
-            initialHour = startHour,
-            initialMinute = startMinute,
-            onDismiss = { activeTimePicker = null },
-            onConfirm = { h, m ->
-                startHour = h
-                startMinute = m
-                activeTimePicker = null
-            }
-        )
+    // ---- Collection time range ----
+    var startTime by remember {
+        val range = existingEntry.collectionTimeRange ?: ""
+        val parts = if (range.contains("–")) range.split("–") else listOf("", "")
+        mutableStateOf(parts.getOrNull(0)?.trim() ?: "")
     }
-    if (activeTimePicker == "end") {
-        TimePickerDialog(
-            title = "Select End Time",
-            initialHour = endHour,
-            initialMinute = endMinute,
-            onDismiss = { activeTimePicker = null },
-            onConfirm = { h, m ->
-                endHour = h
-                endMinute = m
-                activeTimePicker = null
-            }
-        )
+    var endTime by remember {
+        val range = existingEntry.collectionTimeRange ?: ""
+        val parts = if (range.contains("–")) range.split("–") else listOf("", "")
+        mutableStateOf(parts.getOrNull(1)?.trim() ?: "")
     }
+
+    // ---- Linked guide dropdown ----
+    var guideDropdownOpen by remember { mutableStateOf(false) }
+    var selectedGuide     by remember {
+        mutableStateOf(guides.find { it.id == existingEntry.linkedGuideId })
+    }
+
+    // ---- Validation ----
+    val categoriesError = selectedCategories.isEmpty()
+    val canSave         = selectedCategories.isNotEmpty()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(if (existingSchedule != null) "Edit Schedule" else "Add Schedule")
-        },
-        text = {
+        title = { Text(if (isEditMode) "Edit Schedule" else "New Schedule") },
+        text  = {
+            // Rule 16: wrap all content in verticalScroll for small screens
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-                // ── Day of week dropdown ──────────────────────────────────
+                // ============================================================
+                // 1. DAY OF WEEK — single-select dropdown
+                // ============================================================
                 ExposedDropdownMenuBox(
-                    expanded = dayDropdownExpanded,
-                    onExpandedChange = { dayDropdownExpanded = !dayDropdownExpanded }
+                    expanded         = dayDropdownOpen,
+                    onExpandedChange = { dayDropdownOpen = it }
                 ) {
                     OutlinedTextField(
-                        value = selectedDay,
+                        value         = selectedDay,
                         onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Day of Week") },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(
-                                expanded = dayDropdownExpanded
-                            )
+                        readOnly      = true,
+                        label         = { Text("Day of Week") },
+                        trailingIcon  = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = dayDropdownOpen)
                         },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
-                        expanded = dayDropdownExpanded,
-                        onDismissRequest = { dayDropdownExpanded = false }
+                        expanded         = dayDropdownOpen,
+                        onDismissRequest = { dayDropdownOpen = false }
                     ) {
-                        Constants.DAYS_OF_WEEK.forEach { day ->
+                        DAYS_OF_WEEK.forEach { day ->
                             DropdownMenuItem(
-                                text = { Text(day) },
-                                onClick = { selectedDay = day; dayDropdownExpanded = false }
+                                text    = { Text(day) },
+                                onClick = {
+                                    selectedDay     = day
+                                    dayDropdownOpen = false
+                                }
                             )
                         }
                     }
                 }
 
-                // ── Multi-select Waste Categories ─────────────────────────
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { categoriesExpanded = !categoriesExpanded }
-                ) {
-                    Text(
-                        text = "Waste Categories (${selectedCategories.size} selected)",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { categoriesExpanded = !categoriesExpanded }) {
-                        Icon(
-                            imageVector = if (categoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (categoriesExpanded) "Collapse" else "Expand"
-                        )
-                    }
-                }
-
-                if (categoriesExpanded) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        allCategories.forEach { category ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        val isChecked = category in selectedCategories
-                                        selectedCategories = if (isChecked)
-                                            selectedCategories - category
-                                        else
-                                            selectedCategories + category
-                                    }
-                            ) {
-                                Checkbox(
-                                    checked = category in selectedCategories,
-                                    onCheckedChange = { isChecked ->
-                                        selectedCategories = if (isChecked)
-                                            selectedCategories + category
-                                        else
-                                            selectedCategories - category
-                                    }
-                                )
-                                Text(
-                                    text = category,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ── Collection Time Range ─────────────────────────────────
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                ) {
-                    Text(
-                        text = "Collection Time Range (optional)",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (includeTimeRange) {
-                        TextButton(onClick = { includeTimeRange = false }) {
-                            Text("Clear", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // ---- Start time button ----
-                    OutlinedButton(
-                        onClick = { 
-                            activeTimePicker = "start"
-                            includeTimeRange = true
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccessTime,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = if (includeTimeRange) formatTime(startHour, startMinute) else "--:--",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    // Separator label
-                    Text(
-                        text = "to",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.align(Alignment.CenterVertically)
-                    )
-
-                    // ---- End time button ----
-                    OutlinedButton(
-                        onClick = { 
-                            activeTimePicker = "end"
-                            includeTimeRange = true
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccessTime,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = if (includeTimeRange) formatTime(endHour, endMinute) else "--:--",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-
-                // ── Optional Linked Guide ID ──────────────────────────────
-                OutlinedTextField(
-                    value = guideId,
-                    onValueChange = { guideId = it },
-                    label = { Text("Linked Guide ID (optional)") },
-                    placeholder = { Text("Leave blank if none") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                // ============================================================
+                // 2. WASTE CATEGORIES — multi-select checkboxes (Rule 15)
+                // ============================================================
+                Text(
+                    text  = "Waste Categories *",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (categoriesError)
+                        MaterialTheme.colorScheme.error
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        },
+
+                ALL_CATEGORIES.forEach { category ->
+                    Row(
+                        modifier          = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked         = selectedCategories.contains(category),
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    if (!selectedCategories.contains(category)) {
+                                        selectedCategories.add(category)
+                                    }
+                                } else {
+                                    selectedCategories.remove(category)
+                                }
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text  = category,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
+                if (categoriesError) {
+                    Text(
+                        text  = "Select at least one category",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                // ============================================================
+                // 3. COLLECTION TIME RANGE — two separate text fields
+                // ============================================================
+                Text(
+                    text  = "Collection Time Range (optional)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value         = startTime,
+                        onValueChange = { startTime = it },
+                        label         = { Text("Start") },
+                        placeholder   = { Text("07:00") },
+                        modifier      = Modifier.weight(1f),
+                        singleLine    = true
+                    )
+                    OutlinedTextField(
+                        value         = endTime,
+                        onValueChange = { endTime = it },
+                        label         = { Text("End") },
+                        placeholder   = { Text("12:00") },
+                        modifier      = Modifier.weight(1f),
+                        singleLine    = true
+                    )
+                }
+
+                // ============================================================
+                // 4. LINKED GUIDE — dropdown of real guide titles (Phase 5)
+                //    Replaces the raw Firestore-ID text field from before.
+                // ============================================================
+                Text(
+                    text  = "Link Recycling Guide (optional)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded         = guideDropdownOpen,
+                    onExpandedChange = { guideDropdownOpen = it }
+                ) {
+                    OutlinedTextField(
+                        value         = selectedGuide?.title ?: "None",
+                        onValueChange = {},
+                        readOnly      = true,
+                        label         = { Text("Linked Guide") },
+                        trailingIcon  = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = guideDropdownOpen)
+                        },
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded         = guideDropdownOpen,
+                        onDismissRequest = { guideDropdownOpen = false }
+                    ) {
+                        // "None" option removes any previously linked guide
+                        DropdownMenuItem(
+                            text    = { Text("None") },
+                            onClick = {
+                                selectedGuide     = null
+                                guideDropdownOpen = false
+                            }
+                        )
+                        // One row per guide
+                        guides.forEach { guide ->
+                            DropdownMenuItem(
+                                text    = { Text(guide.title) },
+                                onClick = {
+                                    selectedGuide     = guide
+                                    guideDropdownOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+            } // end Column
+        },   // end text lambda
         confirmButton = {
             TextButton(
                 onClick = {
-                    // Only build a time range string if the toggle is on
-                    val timeRange = if (includeTimeRange)
-                        "${formatTime(startHour, startMinute)} – ${formatTime(endHour, endMinute)}"
-                    else null
+                    if (!canSave) return@TextButton
 
-                    onConfirm(
+                    // Build the combined time range string, or null if either field is blank
+                    val timeRange: String? = if (startTime.isNotBlank() && endTime.isNotBlank()) {
+                        "${startTime.trim()} – ${endTime.trim()}"
+                    } else {
+                        null
+                    }
+
+                    onSave(
                         selectedDay,
                         selectedCategories.toList(),
                         timeRange,
-                        guideId.ifBlank { null }
+                        selectedGuide?.id,
+                        existingEntry.id          // blank = create, non-blank = update
                     )
-                }
+                },
+                enabled = canSave
             ) {
-                Text(if (existingSchedule != null) "Save" else "Add")
+                Text("Save")
             }
         },
         dismissButton = {
