@@ -104,23 +104,22 @@ fun SmartWasteManagerAppContent() {
     val notificationViewModel: NotificationViewModel = viewModel(
         factory = NotificationViewModel.factory(app.container.notificationRepository)
     )
-    // In MainActivity, line 104-106, UPDATE to:
     val announcementViewModel: AnnouncementViewModel = viewModel(
         factory = AnnouncementViewModel.factory(
             app.container.announcementRepository,
-            app.container.notificationRepository  // ADD THIS
+            app.container.notificationRepository
         )
     )
-// UPDATE the CollectionPointViewModel factory call (around line 102):
     val collectionPointViewModel: CollectionPointViewModel = viewModel(
         factory = CollectionPointViewModel.factory(
             app.container.collectionPointRepository,
-            app.container.mapRepository  // ADD this parameter
+            app.container.mapRepository
         )
     )
 
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
+    // FIX 1: Ensure zones and schedules are reloaded after authentication.
     // =========================================================================
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -131,11 +130,26 @@ fun SmartWasteManagerAppContent() {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+
     authViewModel.onAuthSuccess = {
+        // Reload all data sources that depend on auth
+        homeViewModel.loadCollectionPoints()  // User points
+        homeViewModel.loadZones()            // Driver zones (FIX: was missing)
+        homeViewModel.refreshCurrentView()   // Trigger schedule reload based on current view
         mapViewModel.loadPins()
         guideViewModel.loadGuides()
         announcementViewModel.loadAnnouncements()
         collectionPointViewModel.loadCurrentUserPoints()
+    }
+
+    // =========================================================================
+    // onSignOut — called when user logs out
+    // FIX 3: Clear all ViewModels to prevent showing previous user's data
+    // =========================================================================
+    authViewModel.onSignOut = {
+        homeViewModel.clearAllData()
+        collectionPointViewModel.clearAllData()
+        // Other ViewModels can add clearAllData() methods if needed
     }
 
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -218,8 +232,8 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // Notification bell — visible to drivers only
-                            if (isDriver) {
+                            // FIX 2: Notification bell — visible ONLY to drivers in Driver View
+                            if (isDriver && isDriverViewActive) {
                                 IconButton(onClick = {
                                     navController.navigate(Routes.NOTIFICATIONS) {
                                         launchSingleTop = true

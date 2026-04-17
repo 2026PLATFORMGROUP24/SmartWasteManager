@@ -107,6 +107,17 @@ class CollectionPointViewModel(
         }
     }
 
+    /**
+     * Clears all user-specific data when the user logs out.
+     */
+    fun clearAllData() {
+        pointsJob?.cancel()
+        _collectionPoints.value = emptyList()
+        _selectedPoint.value = null
+        _allZones.value = emptyList()
+        _uiState.value = CollectionPointUiState.Idle
+    }
+
     fun resetUiState() {
         _uiState.value = CollectionPointUiState.Idle
     }

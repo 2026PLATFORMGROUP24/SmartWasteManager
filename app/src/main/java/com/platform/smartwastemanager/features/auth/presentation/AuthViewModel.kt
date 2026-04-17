@@ -35,6 +35,12 @@ class AuthViewModel(
      */
     var onAuthSuccess: (() -> Unit)? = null
 
+    /**
+     * Optional callback invoked when the user signs out.
+     * Used by MainActivity to clear all ViewModels that hold user-specific data.
+     */
+    var onSignOut: (() -> Unit)? = null
+
     init {
         restoreSessionIfNeeded()
     }
@@ -121,6 +127,8 @@ class AuthViewModel(
         authRepository.signOut()
         _currentUser.value = null
         _uiState.value = AuthUiState.Idle
+        // Notify MainActivity to clear all ViewModels
+        onSignOut?.invoke()
     }
 
     fun resetState() {

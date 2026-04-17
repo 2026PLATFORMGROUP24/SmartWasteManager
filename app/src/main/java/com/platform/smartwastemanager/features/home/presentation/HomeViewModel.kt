@@ -72,6 +72,9 @@ class HomeViewModel(
                             val updated = list.find { it.id == currentSelected.id }
                             if (updated != null) {
                                 _selectedPoint.value = updated // This refreshes the marked status
+                            } else {
+                                // Current selected point no longer exists (user switched accounts)
+                                _selectedPoint.value = null
                             }
                         }
 
@@ -150,6 +153,14 @@ class HomeViewModel(
                 mapRepository.getZones()
                     .collect { list ->
                         _zones.value = list
+
+                        // Check if current selected zone still exists
+                        _selectedZone.value?.let { currentSelected ->
+                            val stillExists = list.any { it.id == currentSelected.id }
+                            if (!stillExists) {
+                                _selectedZone.value = null
+                            }
+                        }
 
                         // Auto-select first zone if none selected
                         if (_selectedZone.value == null && list.isNotEmpty()) {
@@ -321,6 +332,26 @@ class HomeViewModel(
         if (!zoneId.isNullOrBlank()) {
             loadSchedulesForZone(zoneId)
         }
+    }
+
+    /**
+     * Clears all user-specific data when the user logs out.
+     * This prevents the previous user's data from being shown briefly
+     * when a new user logs in.
+     */
+    fun clearAllData() {
+        // Cancel all active listeners
+        collectionPointsJob?.cancel()
+        schedulesJob?.cancel()
+        zonesJob?.cancel()
+
+        // Clear all state
+        _collectionPoints.value = emptyList()
+        _selectedPoint.value = null
+        _schedules.value = emptyList()
+        _zones.value = emptyList()
+        _selectedZone.value = null
+        _uiState.value = HomeUiState.Idle
     }
 
     fun resetUiState() {
