@@ -2,20 +2,17 @@ package com.platform.smartwastemanager.features.guide.presentation
 
 import android.content.Intent
 import android.net.Uri
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -24,9 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -42,24 +44,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
 import dev.jeziellago.compose.markdowntext.MarkdownText
@@ -200,31 +194,114 @@ fun GuideDetailScreen(
                                 if (!isValidYoutubeVideoId(videoId)) {
                                     Text("Invalid YouTube video ID", color = MaterialTheme.colorScheme.error)
                                 } else {
-                                    YouTubeContent(videoId = videoId)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    SuggestionChip(
-                                        onClick = {
-                                            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId"))
-                                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://youtu.be/$videoId"))
-                                            runCatching { context.startActivity(appIntent) }
-                                                .onFailure { context.startActivity(webIntent) }
-                                        },
-                                        label = { Text("Open in YouTube app") }
-                                    )
+                                    val thumbnailUrl = "https://img.youtube.com/vi/$videoId/maxresdefault.jpg"
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(16f / 9f),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                                        ) {
+                                            Box(modifier = Modifier.fillMaxSize()) {
+                                                AsyncImage(
+                                                    model = thumbnailUrl,
+                                                    contentDescription = "Video thumbnail",
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircle,
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(80.dp)
+                                                        .align(Alignment.Center),
+                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(24.dp))
+
+                                        Button(
+                                            onClick = {
+                                                val appIntent = Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse("vnd.youtube:$videoId")
+                                                )
+                                                val webIntent = Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse("https://www.youtube.com/watch?v=$videoId")
+                                                )
+                                                runCatching { context.startActivity(appIntent) }
+                                                    .onFailure { context.startActivity(webIntent) }
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayCircle,
+                                                contentDescription = null
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Watch on YouTube")
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Opens in YouTube app or browser",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
 
                             GuideContentType.GOOGLE_DOC -> {
-                                GoogleDocContent(url = guide.externalUrl)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                SuggestionChip(
-                                    onClick = {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(guide.externalUrl))
-                                        )
-                                    },
-                                    label = { Text("Open in browser") }
-                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(64.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "Google Document",
+                                        style = MaterialTheme.typography.titleLarge
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = guide.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Button(
+                                        onClick = {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(guide.externalUrl))
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.OpenInBrowser, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Open in Browser")
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Opens in your default browser",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
 
                             GuideContentType.PDF -> {
@@ -245,97 +322,6 @@ fun GuideDetailScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun YouTubeContent(videoId: String) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    AndroidView(
-        factory = { context ->
-            YouTubePlayerView(context).apply {
-                lifecycleOwner.lifecycle.addObserver(this)
-                addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
-                    override fun onReady(youTubePlayer: YouTubePlayer) {
-                        youTubePlayer.cueVideo(videoId, 0f)
-                    }
-                })
-            }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(220.dp)
-            .clip(RoundedCornerShape(12.dp))
-    )
-}
-
-@Composable
-private fun GoogleDocContent(url: String) {
-    if (!url.startsWith("https://docs.google.com/")) {
-        Text(
-            "Invalid Google Docs URL. It must start with https://docs.google.com/",
-            color = MaterialTheme.colorScheme.error
-        )
-        return
-    }
-
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val webViewRef = remember { mutableStateOf<WebView?>(null) }
-
-    Box(modifier = Modifier.fillMaxWidth().height(520.dp)) {
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    webViewRef.value = this
-                    settings.javaScriptEnabled = true
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            isLoading = false
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                            errorObj: WebResourceError?
-                        ) {
-                            isLoading = false
-                            error = "Could not load Google Doc. Verify public access settings."
-                        }
-                    }
-                    loadUrl(url)
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        }
-
-        if (error != null) {
-            Text(
-                text = error.orEmpty(),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .background(Color.White)
-                    .padding(8.dp)
-            )
-        }
-
-        SuggestionChip(
-            onClick = {
-                isLoading = true
-                error = null
-                webViewRef.value?.reload()
-            },
-            label = { Text("Refresh") },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-        )
     }
 }
 

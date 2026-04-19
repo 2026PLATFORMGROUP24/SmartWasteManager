@@ -29,7 +29,6 @@ retrofit = "2.11.0"
 okhttp = "4.12.0"
 kotlinxSerializationJson = "1.7.3"
 retrofitKotlinxSerialization = "1.0.0"
-androidYoutube = "12.1.0"
 
 [libraries]
 # AndroidX Core
@@ -111,9 +110,6 @@ okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 # Retrofit converter that uses Kotlinx Serialization (no Gson/Moshi needed)
 retrofit-kotlinx-serialization = { group = "com.jakewharton.retrofit", name = "retrofit2-kotlinx-serialization-converter", version.ref = "retrofitKotlinxSerialization" }
-
-# YouTube Player
-youtube-player = { module = "com.pierfrancescosoffritti.androidyoutubeplayer:core", version.ref = "androidYoutube" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
