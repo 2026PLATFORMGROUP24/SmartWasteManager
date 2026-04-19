@@ -2,10 +2,10 @@ package com.platform.smartwastemanager.features.guide.data
 
 import android.net.Uri
 import com.google.firebase.Timestamp
-import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
-import com.google.firebase.storage.ktx.storage
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
+import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -14,29 +14,21 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
-/**
- * Handles all CRUD operations for recycling guides in Firestore,
- * and image uploads / deletions in Firebase Storage.
- *
- * Firestore collection : recycling_guides/{docId}
- * Storage path         : guide_images/{guideId}/{uuid}.jpg
- */
 class GuideRepository {
 
-    private val firestore = Firebase.firestore
-    private val storage   = Firebase.storage
+    private val firestore = FirebaseFirestore.getInstance()
+    private val storage   = FirebaseStorage.getInstance()
+    private val auth      = FirebaseAuth.getInstance()
+
+    private val guidesCollection = firestore.collection("recycling_guides")
 
     // =========================================================================
     // READ
     // =========================================================================
 
-    /**
-     * Returns a real-time stream of all guides, ordered newest-first.
-     * Rule 4: errors send an empty list rather than crashing the app.
-     */
     fun getGuides(): Flow<List<RecyclingGuide>> = callbackFlow {
-        val listener = firestore.collection("recycling_guides")
-            .orderBy("updatedAt", Query.Direction.DESCENDING)
+        val listener = guidesCollection
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(emptyList())
@@ -47,129 +39,134 @@ class GuideRepository {
                         RecyclingGuide(
                             id              = doc.id,
                             title           = doc.getString("title") ?: "",
+                            contentType     = doc.getString("contentType") ?: GuideContentType.MARKDOWN.name,
                             contentMarkdown = doc.getString("contentMarkdown") ?: "",
+                            externalUrl     = doc.getString("externalUrl") ?: "",
                             imageUrls       = (doc.get("imageUrls") as? List<*>)
                                 ?.filterIsInstance<String>() ?: emptyList(),
                             createdBy       = doc.getString("createdBy") ?: "",
                             createdAt       = doc.getTimestamp("createdAt") ?: Timestamp.now(),
                             updatedAt       = doc.getTimestamp("updatedAt") ?: Timestamp.now()
                         )
-                    } catch (e: Exception) { null }
+                    } catch (_: Exception) {
+                        null
+                    }
                 } ?: emptyList()
                 trySend(guides)
             }
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 
-    /** Fetches a single guide by its Firestore document ID. */
-    suspend fun getGuideById(guideId: String): Result<RecyclingGuide> {
-        return try {
-            val doc = firestore.collection("recycling_guides").document(guideId).get().await()
-            if (!doc.exists()) return Result.failure(Exception("Guide not found"))
-            Result.success(
-                RecyclingGuide(
-                    id              = doc.id,
-                    title           = doc.getString("title") ?: "",
-                    contentMarkdown = doc.getString("contentMarkdown") ?: "",
-                    imageUrls       = (doc.get("imageUrls") as? List<*>)
-                        ?.filterIsInstance<String>() ?: emptyList(),
-                    createdBy       = doc.getString("createdBy") ?: "",
-                    createdAt       = doc.getTimestamp("createdAt") ?: Timestamp.now(),
-                    updatedAt       = doc.getTimestamp("updatedAt") ?: Timestamp.now()
+    suspend fun getGuideById(guideId: String): Result<RecyclingGuide> = try {
+        val doc = guidesCollection.document(guideId).get().await()
+        if (!doc.exists()) {
+            Result.failure(Exception("Guide not found"))
+        } else {
+            val guide = RecyclingGuide(
+                id              = doc.id,
+                title           = doc.getString("title") ?: "",
+                contentType     = doc.getString("contentType") ?: GuideContentType.MARKDOWN.name,
+                contentMarkdown = doc.getString("contentMarkdown") ?: "",
+                externalUrl     = doc.getString("externalUrl") ?: "",
+                imageUrls       = (doc.get("imageUrls") as? List<*>)
+                    ?.filterIsInstance<String>() ?: emptyList(),
+                createdBy       = doc.getString("createdBy") ?: "",
+                createdAt       = doc.getTimestamp("createdAt") ?: Timestamp.now(),
+                updatedAt       = doc.getTimestamp("updatedAt") ?: Timestamp.now()
+            )
+            Result.success(guide)
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    // =========================================================================
+    // CREATE
+    // =========================================================================
+
+    suspend fun createGuide(guide: RecyclingGuide): Result<String> = try {
+        val driverUid = auth.currentUser?.uid
+            ?: return Result.failure(Exception("Not signed in"))
+
+        val docRef = guidesCollection.document()
+        val now    = Timestamp.now()
+
+        docRef.set(
+            mapOf(
+                "id"              to docRef.id,
+                "title"           to guide.title,
+                "contentType"     to guide.contentType,
+                "contentMarkdown" to guide.contentMarkdown,
+                "externalUrl"     to guide.externalUrl,
+                "imageUrls"       to guide.imageUrls,
+                "createdBy"       to driverUid,
+                "createdAt"       to now,
+                "updatedAt"       to now
+            )
+        ).await()
+
+        Result.success(docRef.id)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    // =========================================================================
+    // UPDATE
+    // =========================================================================
+
+    suspend fun updateGuide(guide: RecyclingGuide): Result<Unit> = try {
+        guidesCollection.document(guide.id)
+            .update(
+                mapOf(
+                    "title"           to guide.title,
+                    "contentType"     to guide.contentType,
+                    "contentMarkdown" to guide.contentMarkdown,
+                    "externalUrl"     to guide.externalUrl,
+                    "imageUrls"       to guide.imageUrls,
+                    "updatedAt"       to Timestamp.now()
                 )
-            )
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+            ).await()
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     // =========================================================================
-    // WRITE
+    // DELETE
     // =========================================================================
 
-    /**
-     * Creates a new guide in Firestore.
-     * Returns a Result containing the new auto-generated document ID on success.
-     */
-    suspend fun createGuide(guide: RecyclingGuide): Result<String> {
-        return try {
-            val data = hashMapOf(
-                "title"           to guide.title,
-                "contentMarkdown" to guide.contentMarkdown,
-                "imageUrls"       to guide.imageUrls,
-                "createdBy"       to guide.createdBy,
-                "createdAt"       to Timestamp.now(),
-                "updatedAt"       to Timestamp.now()
-            )
-            val docRef = firestore.collection("recycling_guides").add(data).await()
-            Result.success(docRef.id)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Updates an existing guide's mutable fields.
-     * createdAt and createdBy are intentionally never changed.
-     */
-    suspend fun updateGuide(guide: RecyclingGuide): Result<Unit> {
-        return try {
-            val data = hashMapOf(
-                "title"           to guide.title,
-                "contentMarkdown" to guide.contentMarkdown,
-                "imageUrls"       to guide.imageUrls,
-                "updatedAt"       to Timestamp.now()
-            )
-            firestore.collection("recycling_guides").document(guide.id).update(data).await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Deletes a guide from Firestore AND all its images from Firebase Storage.
-     * Storage errors are caught separately — a missing Storage folder will not
-     * prevent the Firestore document from being deleted.
-     */
-    suspend fun deleteGuide(guideId: String): Result<Unit> {
-        return try {
-            // Step 1 — delete Storage images
-            try {
-                val folderRef = storage.reference.child("guide_images/$guideId")
-                val items = folderRef.listAll().await()
-                items.items.forEach { fileRef -> fileRef.delete().await() }
-            } catch (storageError: Exception) {
-                // Storage folder may not exist — that is fine, continue to Firestore deletion
-            }
-
-            // Step 2 — delete Firestore document
-            firestore.collection("recycling_guides").document(guideId).delete().await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun deleteGuide(guideId: String): Result<Unit> = try {
+        guidesCollection.document(guideId).delete().await()
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     // =========================================================================
-    // IMAGE UPLOAD
+    // STORAGE — Images (for Markdown guides)
     // =========================================================================
 
-    /**
-     * Uploads one image [uri] to Firebase Storage at:
-     *   guide_images/{guideId}/{uuid}.jpg
-     *
-     * Returns the public HTTPS download URL on success.
-     */
-    suspend fun uploadImage(guideId: String, uri: Uri): Result<String> {
-        return try {
-            val fileName = "${UUID.randomUUID()}.jpg"
-            val ref = storage.reference.child("guide_images/$guideId/$fileName")
-            ref.putFile(uri).await()
-            val downloadUrl = ref.downloadUrl.await().toString()
-            Result.success(downloadUrl)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun uploadImage(guideId: String, imageUri: Uri): Result<String> = try {
+        val fileName = UUID.randomUUID().toString() + ".jpg"
+        val ref      = storage.reference.child("guide_images/$guideId/$fileName")
+        ref.putFile(imageUri).await()
+        val downloadUrl = ref.downloadUrl.await().toString()
+        Result.success(downloadUrl)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    // =========================================================================
+    // STORAGE — PDF Upload (for PDF guides)
+    // =========================================================================
+
+    suspend fun uploadPdf(guideId: String, pdfUri: Uri): Result<String> = try {
+        val fileName = "guide_$guideId.pdf"
+        val ref      = storage.reference.child("guide_pdfs/$fileName")
+        ref.putFile(pdfUri).await()
+        val downloadUrl = ref.downloadUrl.await().toString()
+        Result.success(downloadUrl)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.platform.smartwastemanager.features.guide.data.GuideRepository
+import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,15 +36,6 @@ sealed class GuideSaveUiState {
     data class Error(val message: String) : GuideSaveUiState()
 }
 
-/**
- * ViewModel for all recycling guide screens (list, detail, editor).
- *
- * Design notes:
- * - Created ONCE in MainActivity (Rule 3). Never call viewModel() inside a composable.
- * - loadGuides() is called from authViewModel.onAuthSuccess (Rule 5).
- * - [guides] exposes the raw list so ScheduleManagementScreen can use it for the
- *   guide-linking dropdown without its own Firestore listener.
- */
 class GuideViewModel(
     private val guideRepository: GuideRepository
 ) : ViewModel() {
@@ -52,7 +44,6 @@ class GuideViewModel(
     private val _listUiState = MutableStateFlow<GuideListUiState>(GuideListUiState.Loading)
     val listUiState: StateFlow<GuideListUiState> = _listUiState.asStateFlow()
 
-    // Raw list also consumed by ScheduleManagementScreen for the guide picker dropdown
     private val _guides = MutableStateFlow<List<RecyclingGuide>>(emptyList())
     val guides: StateFlow<List<RecyclingGuide>> = _guides.asStateFlow()
 
@@ -76,14 +67,12 @@ class GuideViewModel(
     // LIST
     // =========================================================================
 
-    /** Starts (or restarts) the real-time Firestore listener for all guides. */
     fun loadGuides() {
         listJob?.cancel()
         listJob = viewModelScope.launch {
             _listUiState.value = GuideListUiState.Loading
             guideRepository.getGuides().collect { guides ->
                 _guides.value = guides
-                // Rule 7: if data arrives while state is Error, reset to Success not Error
                 _listUiState.value = GuideListUiState.Success(guides)
             }
         }
@@ -111,32 +100,19 @@ class GuideViewModel(
     // CREATE
     // =========================================================================
 
-    /**
-     * Creates a new guide. Images are uploaded AFTER the Firestore document is created
-     * so we have a real document ID to use as the Storage folder name.
-     *
-     * @param guide        Guide to create. [guide.id] is ignored — Firestore auto-assigns one.
-     * @param newImageUris Local URIs from the gallery picker, not yet uploaded.
-     */
-    /**
-     * Creates a new guide. Images are uploaded AFTER the Firestore document is created
-     * so we have a real document ID to use as the Storage folder name.
-     *
-     * @param guide        Guide to create. [guide.id] is ignored — Firestore auto-assigns one.
-     * @param newImageUris Local URIs from the gallery picker, not yet uploaded.
-     */
-    fun createGuide(guide: RecyclingGuide, newImageUris: List<Uri>) {
+    fun createGuide(
+        guide: RecyclingGuide,
+        newImageUris: List<Uri> = emptyList(),
+        pdfUri: Uri? = null
+    ) {
         viewModelScope.launch {
-            android.util.Log.d("GuideViewModel", "createGuide started")
             _saveUiState.value = GuideSaveUiState.Saving
 
             try {
                 // Step 1: Create the guide document first
-                android.util.Log.d("GuideViewModel", "Creating guide document...")
                 val createResult = guideRepository.createGuide(guide)
 
                 if (createResult.isFailure) {
-                    android.util.Log.e("GuideViewModel", "Failed to create guide: ${createResult.exceptionOrNull()?.message}")
                     _saveUiState.value = GuideSaveUiState.Error(
                         createResult.exceptionOrNull()?.message ?: "Failed to create guide"
                     )
@@ -144,35 +120,36 @@ class GuideViewModel(
                 }
 
                 val newGuideId = createResult.getOrNull() ?: ""
-                android.util.Log.d("GuideViewModel", "Guide created with ID: $newGuideId")
 
-                // Step 2: Upload images if any
-                if (newImageUris.isNotEmpty()) {
-                    android.util.Log.d("GuideViewModel", "Uploading ${newImageUris.size} images...")
-                    val uploadedUrls = uploadImages(newGuideId, newImageUris)
-                    android.util.Log.d("GuideViewModel", "Uploaded ${uploadedUrls.size} images")
-
-                    // Step 3: Update guide with image URLs
-                    if (uploadedUrls.isNotEmpty()) {
-                        android.util.Log.d("GuideViewModel", "Updating guide with image URLs...")
-                        val guideWithImages = guide.copy(
-                            id = newGuideId,
-                            imageUrls = uploadedUrls
-                        )
-                        guideRepository.updateGuide(guideWithImages)
-                        android.util.Log.d("GuideViewModel", "Guide updated with images")
+                // Step 2: Handle content type-specific uploads
+                val finalGuide = when (guide.getContentType()) {
+                    GuideContentType.MARKDOWN -> {
+                        if (newImageUris.isNotEmpty()) {
+                            val uploadedUrls = uploadImages(newGuideId, newImageUris)
+                            guide.copy(id = newGuideId, imageUrls = uploadedUrls)
+                        } else {
+                            guide.copy(id = newGuideId)
+                        }
                     }
-                } else {
-                    android.util.Log.d("GuideViewModel", "No images to upload")
+                    GuideContentType.PDF -> {
+                        if (pdfUri != null) {
+                            val pdfUrl = guideRepository.uploadPdf(newGuideId, pdfUri).getOrNull()
+                            guide.copy(id = newGuideId, externalUrl = pdfUrl ?: "")
+                        } else {
+                            guide.copy(id = newGuideId)
+                        }
+                    }
+                    else -> guide.copy(id = newGuideId)
                 }
 
-                // Step 4: Set success state
-                android.util.Log.d("GuideViewModel", "Setting success state with ID: $newGuideId")
+                // Step 3: Update the document with uploaded URLs if needed
+                if (finalGuide != guide.copy(id = newGuideId)) {
+                    guideRepository.updateGuide(finalGuide)
+                }
+
                 _saveUiState.value = GuideSaveUiState.Success(newGuideId)
-                android.util.Log.d("GuideViewModel", "Save state is now: ${_saveUiState.value}")
 
             } catch (e: Exception) {
-                android.util.Log.e("GuideViewModel", "Exception in createGuide: ${e.message}", e)
                 _saveUiState.value = GuideSaveUiState.Error(e.message ?: "Unknown error")
             }
         }
@@ -181,20 +158,36 @@ class GuideViewModel(
     fun resetSaveState() {
         _saveUiState.value = GuideSaveUiState.Idle
     }
+
     // =========================================================================
     // UPDATE
     // =========================================================================
 
-    /**
-     * Updates an existing guide. [newImageUris] are uploaded and appended to
-     * the existing [guide.imageUrls] list.
-     */
-    fun updateGuide(guide: RecyclingGuide, newImageUris: List<Uri> = emptyList()) {
+    fun updateGuide(
+        guide: RecyclingGuide,
+        newImageUris: List<Uri> = emptyList(),
+        pdfUri: Uri? = null
+    ) {
         viewModelScope.launch {
             _saveUiState.value = GuideSaveUiState.Saving
-            val uploadedUrls = uploadImages(guide.id, newImageUris)
-            val finalGuide   = guide.copy(imageUrls = guide.imageUrls + uploadedUrls)
-            val result       = guideRepository.updateGuide(finalGuide)
+
+            val finalGuide = when (guide.getContentType()) {
+                GuideContentType.MARKDOWN -> {
+                    val uploadedUrls = uploadImages(guide.id, newImageUris)
+                    guide.copy(imageUrls = guide.imageUrls + uploadedUrls)
+                }
+                GuideContentType.PDF -> {
+                    if (pdfUri != null) {
+                        val pdfUrl = guideRepository.uploadPdf(guide.id, pdfUri).getOrNull()
+                        guide.copy(externalUrl = pdfUrl ?: guide.externalUrl)
+                    } else {
+                        guide
+                    }
+                }
+                else -> guide
+            }
+
+            val result = guideRepository.updateGuide(finalGuide)
             _saveUiState.value = if (result.isSuccess) {
                 GuideSaveUiState.Success(guide.id)
             } else {
@@ -217,9 +210,8 @@ class GuideViewModel(
     }
 
     // =========================================================================
-    // STATE RESETS  (call from DisposableEffect when leaving a screen)
+    // STATE RESETS
     // =========================================================================
-
 
     fun resetDeleteSuccess() { _deleteSuccess.value = false }
     fun resetDetailState()   { _detailUiState.value = GuideDetailUiState.Idle }
@@ -228,7 +220,6 @@ class GuideViewModel(
     // HELPERS
     // =========================================================================
 
-    /** Uploads all [uris] and returns the download URLs of successful uploads. */
     private suspend fun uploadImages(guideId: String, uris: List<Uri>): List<String> =
         uris.mapNotNull { uri -> guideRepository.uploadImage(guideId, uri).getOrNull() }
 

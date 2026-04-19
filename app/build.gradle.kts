@@ -41,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        viewBinding = true  // Required for YouTube player
     }
 
     // IMPORTANT: Prevents Gradle from compressing the .tflite model file.
@@ -113,6 +114,12 @@ dependencies {
 
     // ---- Markdown Renderer ----
     implementation(libs.compose.markdown)
+
+    // ---- YouTube Player (for embedded playback) ----
+    implementation(libs.youtube.player)
+
+    // ---- PDF Viewer ----
+    implementation(libs.pdf.viewer)
 
     // ---- Testing ----
     testImplementation(libs.junit)
