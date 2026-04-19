@@ -1,7 +1,6 @@
 package com.platform.smartwastemanager.features.guide.presentation
 
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,8 +68,6 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 private const val DRAFT_AUTOSAVE_INTERVAL_MS = 30_000L
-// Limit PDF uploads to 10MB to reduce mobile upload failures and data usage.
-private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -94,9 +91,6 @@ fun GuideEditorScreen(
     var externalUrl by remember { mutableStateOf("") }
     var existingImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var newImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedPdfName by remember { mutableStateOf<String?>(null) }
-    var selectedPdfSizeBytes by remember { mutableStateOf<Long?>(null) }
     var showMarkdownPreview by remember { mutableStateOf(false) }
     var hasPreloaded by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
@@ -109,34 +103,13 @@ fun GuideEditorScreen(
         contentMarkdown,
         externalUrl,
         existingImageUrls.joinToString(","),
-        newImageUris.joinToString(",") { it.toString() },
-        selectedPdfUri?.toString().orEmpty()
+        newImageUris.joinToString(",") { it.toString() }
     ).joinToString("||")
-
-    fun loadPdfMeta(uri: Uri) {
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-            if (cursor.moveToFirst()) {
-                selectedPdfName = if (nameIndex >= 0) cursor.getString(nameIndex) else "selected.pdf"
-                selectedPdfSizeBytes = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else null
-            }
-        }
-    }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         newImageUris = newImageUris + uris
-    }
-
-    val pdfPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            selectedPdfUri = uri
-            loadPdfMeta(uri)
-        }
     }
 
     LaunchedEffect(guideId) {
@@ -213,16 +186,10 @@ fun GuideEditorScreen(
     val isTitleValid = title.isNotBlank()
     val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
     val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
-    val isPdfSizeKnownOrNotRequired = selectedPdfUri == null || selectedPdfSizeBytes != null
-    val isPdfSizeValid = selectedPdfUri == null || (selectedPdfSizeBytes ?: Long.MAX_VALUE) <= MAX_PDF_SIZE_BYTES
-    val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())
 
     val canSave = isTitleValid &&
             isMarkdownValid &&
             isYoutubeValid &&
-            isPdfSizeKnownOrNotRequired &&
-            isPdfSizeValid &&
-            hasPdfSource &&
             !isSaving
 
     if (showDiscardDialog) {
@@ -304,7 +271,6 @@ fun GuideEditorScreen(
                                 when (type) {
                                     GuideContentType.MARKDOWN -> "Markdown"
                                     GuideContentType.YOUTUBE -> "YouTube"
-                                    GuideContentType.PDF -> "PDF"
                                 }
                             )
                         }
@@ -427,26 +393,6 @@ fun GuideEditorScreen(
                         )
                     }
                 }
-
-                GuideContentType.PDF -> {
-                    OutlinedButton(onClick = { pdfPicker.launch("application/pdf") }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Select PDF")
-                    }
-                    if (selectedPdfName != null) {
-                        val sizeMb = ((selectedPdfSizeBytes ?: 0L).toDouble() / (1024.0 * 1024.0))
-                        Text(
-                            text = "$selectedPdfName (${String.format("%.2f", sizeMb)} MB)",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        if (!isPdfSizeKnownOrNotRequired) {
-                            Text("Could not determine PDF size.", color = MaterialTheme.colorScheme.error)
-                        } else if (!isPdfSizeValid) {
-                            Text("PDF must be 10MB or less.", color = MaterialTheme.colorScheme.error)
-                        }
-                    } else if (isEditMode && externalUrl.isNotBlank()) {
-                        Text("Existing PDF is attached.", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
             }
 
             if (saveState is GuideSaveUiState.Error) {
@@ -458,7 +404,6 @@ fun GuideEditorScreen(
                     if (!canSave) return@Button
                     val normalizedExternal = when (contentType) {
                         GuideContentType.YOUTUBE -> externalUrl.trim()
-                        GuideContentType.PDF -> if (selectedPdfUri == null) externalUrl else ""
                         GuideContentType.MARKDOWN -> ""
                     }
 
@@ -473,11 +418,10 @@ fun GuideEditorScreen(
                     )
 
                     val uploadImages = if (contentType == GuideContentType.MARKDOWN) newImageUris else emptyList()
-                    val pdfToUpload = if (contentType == GuideContentType.PDF) selectedPdfUri else null
                     if (isEditMode) {
-                        viewModel.updateGuide(guide, uploadImages, pdfToUpload)
+                        viewModel.updateGuide(guide, uploadImages)
                     } else {
-                        viewModel.createGuide(guide, uploadImages, pdfToUpload)
+                        viewModel.createGuide(guide, uploadImages)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

@@ -34,7 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -255,19 +254,6 @@ fun GuideDetailScreen(
                                     }
                                 }
                             }
-
-                            GuideContentType.PDF -> {
-                                PdfContent(url = guide.externalUrl)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                SuggestionChip(
-                                    onClick = {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(guide.externalUrl))
-                                        )
-                                    },
-                                    label = { Text("Download PDF") }
-                                )
-                            }
                         }
                         Spacer(modifier = Modifier.height(88.dp))
                     }
@@ -275,20 +261,6 @@ fun GuideDetailScreen(
             }
         }
     }
-}
-
-@Composable
-private fun PdfContent(url: String) {
-    if (url.isBlank()) {
-        Text("Invalid PDF URL", color = MaterialTheme.colorScheme.error)
-        return
-    }
-    PdfViewer(
-        pdfUrl = url,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(520.dp)
-    )
 }
 
 private fun normalizeMarkdown(content: String): String {
