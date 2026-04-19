@@ -268,7 +268,6 @@ private fun GuideListCard(
                         Spacer(modifier = Modifier.height(10.dp))
                     }
                 }
-                GuideContentType.GOOGLE_DOC,
                 GuideContentType.PDF -> Unit
             }
 
@@ -283,7 +282,6 @@ private fun GuideListCard(
                             when (guide.getContentType()) {
                                 GuideContentType.MARKDOWN -> "📝 Markdown"
                                 GuideContentType.YOUTUBE -> "🎥 YouTube"
-                                GuideContentType.GOOGLE_DOC -> "📄 Google Doc"
                                 GuideContentType.PDF -> "📕 PDF"
                             }
                         )
@@ -317,7 +315,6 @@ private fun GuideListCard(
                                 .joinToString(" ")
                                 .take(130)
                             GuideContentType.YOUTUBE -> "Video ID: ${guide.externalUrl}"
-                            GuideContentType.GOOGLE_DOC -> guide.externalUrl.take(130)
                             GuideContentType.PDF -> "PDF document"
                         }
                     }

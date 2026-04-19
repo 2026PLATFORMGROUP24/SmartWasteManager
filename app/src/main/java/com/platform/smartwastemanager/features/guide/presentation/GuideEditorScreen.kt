@@ -213,7 +213,6 @@ fun GuideEditorScreen(
     val isTitleValid = title.isNotBlank()
     val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
     val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
-    val isGoogleDocValid = contentType != GuideContentType.GOOGLE_DOC || externalUrl.trim().startsWith("https://docs.google.com/")
     val isPdfSizeKnownOrNotRequired = selectedPdfUri == null || selectedPdfSizeBytes != null
     val isPdfSizeValid = selectedPdfUri == null || (selectedPdfSizeBytes ?: Long.MAX_VALUE) <= MAX_PDF_SIZE_BYTES
     val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())
@@ -221,7 +220,6 @@ fun GuideEditorScreen(
     val canSave = isTitleValid &&
             isMarkdownValid &&
             isYoutubeValid &&
-            isGoogleDocValid &&
             isPdfSizeKnownOrNotRequired &&
             isPdfSizeValid &&
             hasPdfSource &&
@@ -306,7 +304,6 @@ fun GuideEditorScreen(
                                 when (type) {
                                     GuideContentType.MARKDOWN -> "Markdown"
                                     GuideContentType.YOUTUBE -> "YouTube"
-                                    GuideContentType.GOOGLE_DOC -> "Google Doc"
                                     GuideContentType.PDF -> "PDF"
                                 }
                             )
@@ -431,22 +428,6 @@ fun GuideEditorScreen(
                     }
                 }
 
-                GuideContentType.GOOGLE_DOC -> {
-                    OutlinedTextField(
-                        value = externalUrl,
-                        onValueChange = { externalUrl = it.trim() },
-                        label = { Text("Google Docs URL") },
-                        supportingText = { Text("Paste the shareable link to your Google Doc") },
-                        modifier = Modifier.fillMaxWidth(),
-                        isError = externalUrl.isNotBlank() && !isGoogleDocValid
-                    )
-                    Text(
-                        "Must be publicly accessible or 'Anyone with the link can view'.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
                 GuideContentType.PDF -> {
                     OutlinedButton(onClick = { pdfPicker.launch("application/pdf") }, modifier = Modifier.fillMaxWidth()) {
                         Text("Select PDF")
@@ -476,8 +457,7 @@ fun GuideEditorScreen(
                 onClick = {
                     if (!canSave) return@Button
                     val normalizedExternal = when (contentType) {
-                        GuideContentType.YOUTUBE,
-                        GuideContentType.GOOGLE_DOC -> externalUrl.trim()
+                        GuideContentType.YOUTUBE -> externalUrl.trim()
                         GuideContentType.PDF -> if (selectedPdfUri == null) externalUrl else ""
                         GuideContentType.MARKDOWN -> ""
                     }
