@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -136,7 +137,8 @@ fun GuideListScreen(
                     val filteredGuides = state.guides.filter { guide ->
                         searchQuery.isBlank() ||
                                 guide.title.contains(searchQuery, ignoreCase = true) ||
-                                guide.contentMarkdown.contains(searchQuery, ignoreCase = true)
+                                guide.contentMarkdown.contains(searchQuery, ignoreCase = true) ||
+                                guide.externalUrl.contains(searchQuery, ignoreCase = true)
                     }
                     if (state.guides.isEmpty()) {
                         // Empty state message
@@ -233,24 +235,59 @@ private fun GuideListCard(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            if (guide.imageUrls.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(guide.imageUrls) { imageUrl ->
-                        AsyncImage(
-                            model = imageUrl,
-                            contentDescription = "Guide image",
-                            modifier = Modifier
-                                .fillParentMaxWidth()
-                                .height(170.dp),
-                            contentScale = ContentScale.Crop
+            when (guide.getContentType()) {
+                GuideContentType.MARKDOWN -> if (guide.imageUrls.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(guide.imageUrls) { imageUrl ->
+                            AsyncImage(
+                                model = imageUrl,
+                                contentDescription = "Guide image",
+                                modifier = Modifier
+                                    .fillParentMaxWidth()
+                                    .height(170.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+                GuideContentType.YOUTUBE -> {
+                    AsyncImage(
+                        model = "https://img.youtube.com/vi/${guide.externalUrl}/0.jpg",
+                        contentDescription = "YouTube thumbnail",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(170.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+                GuideContentType.GOOGLE_DOC,
+                GuideContentType.PDF -> Unit
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SuggestionChip(
+                    onClick = onClick,
+                    label = {
+                        Text(
+                            when (guide.getContentType()) {
+                                GuideContentType.MARKDOWN -> "📝 Markdown"
+                                GuideContentType.YOUTUBE -> "🎥 YouTube"
+                                GuideContentType.GOOGLE_DOC -> "📄 Google Doc"
+                                GuideContentType.PDF -> "📕 PDF"
+                            }
                         )
                     }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
+                )
             }
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Title row + action buttons
             Row(
@@ -269,12 +306,17 @@ private fun GuideListCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // 2-line preview: strip Markdown headers so the preview reads cleanly
-                    val preview = remember(guide.contentMarkdown) {
-                        guide.contentMarkdown
-                            .lines()
-                            .filter { line -> line.isNotBlank() && !line.startsWith("#") }
-                            .joinToString(" ")
-                            .take(130)
+                    val preview = remember(guide.contentMarkdown, guide.externalUrl, guide.contentType) {
+                        when (guide.getContentType()) {
+                            GuideContentType.MARKDOWN -> guide.contentMarkdown
+                                .lines()
+                                .filter { line -> line.isNotBlank() && !line.startsWith("#") }
+                                .joinToString(" ")
+                                .take(130)
+                            GuideContentType.YOUTUBE -> "Video ID: ${guide.externalUrl}"
+                            GuideContentType.GOOGLE_DOC -> guide.externalUrl.take(130)
+                            GuideContentType.PDF -> "PDF document"
+                        }
                     }
                     if (preview.isNotEmpty()) {
                         Text(
@@ -320,16 +362,10 @@ private fun GuideListCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment     = Alignment.CenterVertically
             ) {
-                if (guide.imageUrls.isNotEmpty()) {
-                    SuggestionChip(
-                        onClick = onClick,
-                        label   = {
-                            Text(
-                                "🖼️ ${guide.imageUrls.size} " +
-                                        "image${if (guide.imageUrls.size != 1) "s" else ""}"
-                            )
-                        }
-                    )
+                if (guide.getContentType() == GuideContentType.MARKDOWN && guide.imageUrls.isNotEmpty()) {
+                    SuggestionChip(onClick = onClick, label = {
+                        Text("🖼️ ${guide.imageUrls.size} image${if (guide.imageUrls.size != 1) "s" else ""}")
+                    })
                 } else {
                     Spacer(modifier = Modifier.width(1.dp)) // keeps the date right-aligned
                 }
