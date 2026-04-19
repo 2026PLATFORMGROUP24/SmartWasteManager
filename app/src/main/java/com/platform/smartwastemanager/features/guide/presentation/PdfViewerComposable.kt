@@ -49,12 +49,15 @@ private const val MAX_RENDER_DIMENSION = 2048
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 3f
 private const val ZOOM_STEP = 0.25f
-private const val SLIDER_ENDPOINT_COUNT_OFFSET = 1
+private const val SLIDER_DISCRETE_STEP_OFFSET = 1
 private const val PERCENT_MULTIPLIER = 100
-private val bitmapRecycleLock = Any()
 
+/**
+ * Compose Slider `steps` expects only the number of discrete values *between* min and max,
+ * so we subtract one from the full increment count across the zoom range.
+ */
 private fun zoomSliderSteps(): Int =
-    (((MAX_ZOOM_SCALE - MIN_ZOOM_SCALE) / ZOOM_STEP).toInt() - SLIDER_ENDPOINT_COUNT_OFFSET)
+    (((MAX_ZOOM_SCALE - MIN_ZOOM_SCALE) / ZOOM_STEP).toInt() - SLIDER_DISCRETE_STEP_OFFSET)
         .coerceAtLeast(0)
 
 private fun stablePdfCacheName(url: String): String {
@@ -63,8 +66,8 @@ private fun stablePdfCacheName(url: String): String {
     return "guide_pdf_$hex.pdf"
 }
 
-private fun recycleBitmaps(bitmaps: List<Bitmap>) {
-    synchronized(bitmapRecycleLock) {
+private fun recycleBitmaps(lock: Any, bitmaps: List<Bitmap>) {
+    synchronized(lock) {
         bitmaps.forEach { bitmap ->
             if (!bitmap.isRecycled) {
                 bitmap.recycle()
@@ -84,6 +87,7 @@ fun PdfViewer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val bitmapRecycleLock = remember { Any() }
     var pageBitmaps by remember(pdfUrl) { mutableStateOf<List<Bitmap>>(emptyList()) }
     var pageCount by remember(pdfUrl) { mutableIntStateOf(0) }
     var isLoading by remember(pdfUrl) { mutableStateOf(true) }
@@ -92,7 +96,7 @@ fun PdfViewer(
 
     DisposableEffect(pdfUrl) {
         onDispose {
-            recycleBitmaps(pageBitmaps)
+            recycleBitmaps(bitmapRecycleLock, pageBitmaps)
         }
     }
 
@@ -103,7 +107,7 @@ fun PdfViewer(
         zoomScale = MIN_ZOOM_SCALE
         val previousBitmaps = pageBitmaps
         pageBitmaps = emptyList()
-        recycleBitmaps(previousBitmaps)
+        recycleBitmaps(bitmapRecycleLock, previousBitmaps)
 
         runCatching {
             withContext(Dispatchers.IO) {
