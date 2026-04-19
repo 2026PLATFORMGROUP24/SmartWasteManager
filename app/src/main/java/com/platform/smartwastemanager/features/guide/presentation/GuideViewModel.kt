@@ -102,8 +102,7 @@ class GuideViewModel(
 
     fun createGuide(
         guide: RecyclingGuide,
-        newImageUris: List<Uri> = emptyList(),
-        pdfUri: Uri? = null
+        newImageUris: List<Uri> = emptyList()
     ) {
         viewModelScope.launch {
             _saveUiState.value = GuideSaveUiState.Saving
@@ -131,24 +130,7 @@ class GuideViewModel(
                             guide.copy(id = newGuideId)
                         }
                     }
-                    GuideContentType.PDF -> {
-                        if (pdfUri != null) {
-                            val uploadResult = guideRepository.uploadPdf(newGuideId, pdfUri)
-                            if (uploadResult.isFailure) {
-                                _saveUiState.value = GuideSaveUiState.Error(
-                                    uploadResult.exceptionOrNull()?.message ?: "Failed to upload PDF"
-                                )
-                                return@launch
-                            }
-                            guide.copy(
-                                id = newGuideId,
-                                externalUrl = uploadResult.getOrNull() ?: guide.externalUrl
-                            )
-                        } else {
-                            guide.copy(id = newGuideId)
-                        }
-                    }
-                    else -> guide.copy(id = newGuideId)
+                    GuideContentType.YOUTUBE -> guide.copy(id = newGuideId)
                 }
 
                 // Step 3: Update the document with uploaded URLs if needed
@@ -174,8 +156,7 @@ class GuideViewModel(
 
     fun updateGuide(
         guide: RecyclingGuide,
-        newImageUris: List<Uri> = emptyList(),
-        pdfUri: Uri? = null
+        newImageUris: List<Uri> = emptyList()
     ) {
         viewModelScope.launch {
             _saveUiState.value = GuideSaveUiState.Saving
@@ -185,21 +166,7 @@ class GuideViewModel(
                     val uploadedUrls = uploadImages(guide.id, newImageUris)
                     guide.copy(imageUrls = guide.imageUrls + uploadedUrls)
                 }
-                GuideContentType.PDF -> {
-                    if (pdfUri != null) {
-                        val uploadResult = guideRepository.uploadPdf(guide.id, pdfUri)
-                        if (uploadResult.isFailure) {
-                            _saveUiState.value = GuideSaveUiState.Error(
-                                uploadResult.exceptionOrNull()?.message ?: "Failed to upload PDF"
-                            )
-                            return@launch
-                        }
-                        guide.copy(externalUrl = uploadResult.getOrNull() ?: guide.externalUrl)
-                    } else {
-                        guide
-                    }
-                }
-                else -> guide
+                GuideContentType.YOUTUBE -> guide
             }
 
             val result = guideRepository.updateGuide(finalGuide)
