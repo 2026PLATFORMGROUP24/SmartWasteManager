@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -57,7 +58,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
@@ -92,6 +95,7 @@ fun GuideEditorScreen(
     var existingImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var newImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var showMarkdownPreview by remember { mutableStateOf(false) }
+    var showMarkdownGuide by remember { mutableStateOf(false) }
     var hasPreloaded by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
 
@@ -280,7 +284,23 @@ fun GuideEditorScreen(
 
             when (contentType) {
                 GuideContentType.MARKDOWN -> {
-                    Text("Quick Insert", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Quick Insert", style = MaterialTheme.typography.labelMedium)
+                        SuggestionChip(
+                            onClick = { showMarkdownGuide = !showMarkdownGuide },
+                            label = { Text("Syntax Guide") },
+                            icon = { Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+
+                    if (showMarkdownGuide) {
+                        MarkdownSyntaxLegend()
+                    }
+
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -438,6 +458,51 @@ fun GuideEditorScreen(
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun MarkdownSyntaxLegend() {
+    androidx.compose.material3.ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = androidx.compose.material3.CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Markdown Syntax", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            
+            val items = listOf(
+                "# Heading" to "Heading 1",
+                "## Heading" to "Heading 2",
+                "**bold**" to "Bold text",
+                "*italic*" to "Italic text",
+                "- item" to "Bullet point",
+                "1. item" to "Numbered list",
+                "> quote" to "Blockquote",
+                "`code`" to "Inline code",
+                "---" to "Horizontal rule"
+            )
+
+            items.chunked(2).forEach { rowItems ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    rowItems.forEach { (syntax, desc) ->
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(syntax, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(80.dp))
+                            Text(desc, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (rowItems.size < 2) Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
 }

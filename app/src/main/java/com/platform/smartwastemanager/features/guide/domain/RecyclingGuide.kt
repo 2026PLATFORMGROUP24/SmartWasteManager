@@ -28,3 +28,12 @@ data class RecyclingGuide(
             GuideContentType.MARKDOWN
         }
 }
+
+/**
+ * Validates if a string is a potentially valid YouTube video ID.
+ * YouTube IDs are 11 characters long and can contain letters, numbers, underscores and hyphens.
+ */
+fun isValidYoutubeVideoId(id: String): Boolean {
+    val regex = "^[a-zA-Z0-9_-]{11}$".toRegex()
+    return id.matches(regex)
+}
