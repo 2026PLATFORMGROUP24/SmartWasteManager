@@ -70,6 +70,8 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GuideDetailScreen(
@@ -306,7 +308,7 @@ private fun GoogleDocContent(url: String) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
-                    settings.javaScriptEnabled = false
+                    settings.javaScriptEnabled = true
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             isLoading = false
@@ -360,8 +362,26 @@ private fun PdfContent(url: String) {
             runCatching {
                 val safeHash = sha256(url)
                 val target = File(context.cacheDir, "guide_$safeHash.pdf")
-                URL(url).openStream().use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
+                val connection = URL(url).openConnection().apply { connect() }
+                val declaredSize = connection.contentLengthLong
+                if (declaredSize > MAX_PDF_SIZE_BYTES) {
+                    throw IllegalStateException("PDF exceeds 10MB limit.")
+                }
+
+                connection.getInputStream().use { input ->
+                    target.outputStream().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > MAX_PDF_SIZE_BYTES) {
+                                throw IllegalStateException("PDF exceeds 10MB limit.")
+                            }
+                            output.write(buffer, 0, read)
+                        }
+                    }
                 }
                 target
             }

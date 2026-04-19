@@ -68,7 +68,7 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 private const val DRAFT_AUTOSAVE_INTERVAL_MS = 30_000L
-// Requirement: 10MB max PDF size.
+// Limit PDF uploads to 10MB to reduce mobile upload failures and data usage.
 private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -213,10 +213,18 @@ fun GuideEditorScreen(
     val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
     val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
     val isGoogleDocValid = contentType != GuideContentType.GOOGLE_DOC || externalUrl.trim().startsWith("https://docs.google.com/")
-    val isPdfSizeValid = (selectedPdfSizeBytes ?: 0L) <= MAX_PDF_SIZE_BYTES
+    val isPdfSizeKnownOrNotRequired = selectedPdfUri == null || selectedPdfSizeBytes != null
+    val isPdfSizeValid = selectedPdfUri == null || (selectedPdfSizeBytes ?: Long.MAX_VALUE) <= MAX_PDF_SIZE_BYTES
     val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())
 
-    val canSave = isTitleValid && isMarkdownValid && isYoutubeValid && isGoogleDocValid && isPdfSizeValid && hasPdfSource && !isSaving
+    val canSave = isTitleValid &&
+            isMarkdownValid &&
+            isYoutubeValid &&
+            isGoogleDocValid &&
+            isPdfSizeKnownOrNotRequired &&
+            isPdfSizeValid &&
+            hasPdfSource &&
+            !isSaving
 
     if (showDiscardDialog) {
         AlertDialog(
@@ -401,7 +409,7 @@ fun GuideEditorScreen(
                         value = externalUrl,
                         onValueChange = { externalUrl = it.trim() },
                         label = { Text("YouTube Video ID") },
-                        supportingText = { Text("Enter only the video ID, not the full URL") },
+                        supportingText = { Text("Enter only the video ID (e.g., dQw4w9WgXcQ), not the full URL") },
                         modifier = Modifier.fillMaxWidth(),
                         isError = externalUrl.isNotBlank() && !isYoutubeValid
                     )
@@ -448,7 +456,9 @@ fun GuideEditorScreen(
                             text = "$selectedPdfName (${String.format("%.2f", sizeMb)} MB)",
                             style = MaterialTheme.typography.bodySmall
                         )
-                        if (!isPdfSizeValid) {
+                        if (!isPdfSizeKnownOrNotRequired) {
+                            Text("Could not determine PDF size.", color = MaterialTheme.colorScheme.error)
+                        } else if (!isPdfSizeValid) {
                             Text("PDF must be 10MB or less.", color = MaterialTheme.colorScheme.error)
                         }
                     } else if (isEditMode && externalUrl.isNotBlank()) {
