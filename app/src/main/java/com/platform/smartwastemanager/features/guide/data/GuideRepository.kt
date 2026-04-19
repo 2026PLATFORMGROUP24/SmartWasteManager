@@ -161,7 +161,7 @@ class GuideRepository {
     // =========================================================================
 
     suspend fun uploadPdf(guideId: String, pdfUri: Uri): Result<String> = try {
-        val ref      = storage.reference.child("guide_pdfs/$guideId.pdf")
+        val ref      = storage.reference.child("guide_pdfs/guide_${guideId}.pdf")
         ref.putFile(pdfUri).await()
         val downloadUrl = ref.downloadUrl.await().toString()
         Result.success(downloadUrl)

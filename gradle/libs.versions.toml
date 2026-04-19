@@ -30,7 +30,6 @@ okhttp = "4.12.0"
 kotlinxSerializationJson = "1.7.3"
 retrofitKotlinxSerialization = "1.0.0"
 androidYoutube = "12.1.0"
-pdfViewer = "3.2.0-beta.1"
 
 [libraries]
 # AndroidX Core
@@ -115,9 +114,6 @@ retrofit-kotlinx-serialization = { group = "com.jakewharton.retrofit", name = "r
 
 # YouTube Player
 youtube-player = { module = "com.pierfrancescosoffritti.androidyoutubeplayer:core", version.ref = "androidYoutube" }
-
-# PDF Viewer
-pdf-viewer = { module = "com.github.barteksc:android-pdf-viewer", version.ref = "pdfViewer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
