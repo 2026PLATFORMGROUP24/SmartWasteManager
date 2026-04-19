@@ -38,6 +38,9 @@ import kotlinx.coroutines.launch
  *   A) Type a place name in the Zone Name field and press Search.
  *   B) Long-press anywhere on the map.
  *   C) Pan to the spot, then tap the [+] FAB.
+ *
+ * FIX: Now displays all existing zones as grey overlays so drivers can see
+ *      where zones already exist and avoid overlaps.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -47,6 +50,7 @@ fun ZoneMapPickerScreen(
     onNavigateBack: () -> Unit
 ) {
     val actionState   by viewModel.actionState.collectAsStateWithLifecycle()
+    val allZonesState by viewModel.allZonesState.collectAsStateWithLifecycle()
     val context       = LocalContext.current
     val focusManager  = LocalFocusManager.current
     val scope         = rememberCoroutineScope()
@@ -69,8 +73,9 @@ fun ZoneMapPickerScreen(
         )
     )
 
-    // Fly to device location when screen opens
+    // Load all existing zones so we can show them on the map
     LaunchedEffect(Unit) {
+        viewModel.loadAllZones()
         if (locationPermissions.allPermissionsGranted) {
             val geoPoint = LocationHelper.getCurrentLocation(context)
             if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
@@ -169,10 +174,31 @@ fun ZoneMapPickerScreen(
                     ),
                     onMapLongClick = { latLng -> pickedLatLng = latLng }
                 ) {
+                    // ---- Show all existing zones as grey overlays ----
+                    if (allZonesState is AllZonesUiState.Success) {
+                        val existingZones = (allZonesState as AllZonesUiState.Success).zones
+                        existingZones.forEach { zone ->
+                            val center = LatLng(zone.centerLat, zone.centerLng)
+                            Marker(
+                                state = rememberMarkerState(position = center),
+                                title = zone.name,
+                                alpha = 0.5f
+                            )
+                            Circle(
+                                center      = center,
+                                radius      = zone.radiusMeters,
+                                fillColor   = Color.Gray.copy(alpha = 0.15f),
+                                strokeColor = Color.Gray.copy(alpha = 0.5f),
+                                strokeWidth = 2f
+                            )
+                        }
+                    }
+
+                    // ---- Show the NEW zone being created ----
                     pickedLatLng?.let { centre ->
                         Marker(
                             state = rememberMarkerState(position = centre),
-                            title = zoneName.ifBlank { "Zone Centre" }
+                            title = zoneName.ifBlank { "New Zone Centre" }
                         )
                         Circle(
                             center      = centre,
@@ -299,6 +325,17 @@ fun ZoneMapPickerScreen(
                             modifier = Modifier
                                 .width(64.dp)
                                 .padding(start = 8.dp)
+                        )
+                    }
+
+                    // Show existing zones count
+                    if (allZonesState is AllZonesUiState.Success) {
+                        val count = (allZonesState as AllZonesUiState.Success).zones.size
+                        Text(
+                            text  = "ℹ️ $count existing zone${if (count != 1) "s" else ""} shown in grey",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
 
