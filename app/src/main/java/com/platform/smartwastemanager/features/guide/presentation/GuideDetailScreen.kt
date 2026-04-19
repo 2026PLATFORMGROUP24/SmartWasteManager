@@ -345,75 +345,12 @@ private fun PdfContent(url: String) {
         Text("Invalid PDF URL", color = MaterialTheme.colorScheme.error)
         return
     }
-
-    val pdfViewerUrl = remember(url) {
-        "https://docs.google.com/viewer?url=${Uri.encode(url)}&embedded=true"
-    }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val webViewRef = remember { mutableStateOf<WebView?>(null) }
-
-    Box(
+    PdfViewer(
+        pdfUrl = url,
         modifier = Modifier
             .fillMaxWidth()
             .height(520.dp)
-    ) {
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    webViewRef.value = this
-                    settings.javaScriptEnabled = true
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                            isLoading = false
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                            errorObj: WebResourceError?
-                        ) {
-                            isLoading = false
-                            error = "Could not load PDF."
-                        }
-                    }
-                    loadUrl(pdfViewerUrl)
-                }
-            },
-            update = {
-                if (it.url != pdfViewerUrl) {
-                    isLoading = true
-                    error = null
-                    it.loadUrl(pdfViewerUrl)
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        }
-
-        if (error != null) {
-            Text(
-                text = error.orEmpty(),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        }
-
-        SuggestionChip(
-            onClick = {
-                isLoading = true
-                error = null
-                webViewRef.value?.reload()
-            },
-            label = { Text("Refresh") },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-        )
-    }
+    )
 }
 
 private fun normalizeMarkdown(content: String): String {
