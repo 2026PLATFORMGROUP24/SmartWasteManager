@@ -251,12 +251,6 @@ fun GuideDetailScreen(
 @Composable
 private fun YouTubeContent(videoId: String) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val errorState = remember { mutableStateOf<String?>(null) }
-
-    if (errorState.value != null) {
-        Text(errorState.value ?: "Unable to load video", color = MaterialTheme.colorScheme.error)
-        return
-    }
 
     AndroidView(
         factory = { context ->
@@ -265,13 +259,6 @@ private fun YouTubeContent(videoId: String) {
                 addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
                     override fun onReady(youTubePlayer: YouTubePlayer) {
                         youTubePlayer.cueVideo(videoId, 0f)
-                    }
-
-                    override fun onError(
-                        youTubePlayer: YouTubePlayer,
-                        error: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.utils.PlayerConstants.PlayerError
-                    ) {
-                        errorState.value = "Video is unavailable."
                     }
                 })
             }
