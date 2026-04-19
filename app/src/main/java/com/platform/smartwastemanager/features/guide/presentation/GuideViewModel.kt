@@ -133,8 +133,17 @@ class GuideViewModel(
                     }
                     GuideContentType.PDF -> {
                         if (pdfUri != null) {
-                            val pdfUrl = guideRepository.uploadPdf(newGuideId, pdfUri).getOrNull()
-                            guide.copy(id = newGuideId, externalUrl = pdfUrl ?: "")
+                            val uploadResult = guideRepository.uploadPdf(newGuideId, pdfUri)
+                            if (uploadResult.isFailure) {
+                                _saveUiState.value = GuideSaveUiState.Error(
+                                    uploadResult.exceptionOrNull()?.message ?: "Failed to upload PDF"
+                                )
+                                return@launch
+                            }
+                            guide.copy(
+                                id = newGuideId,
+                                externalUrl = uploadResult.getOrNull() ?: guide.externalUrl
+                            )
                         } else {
                             guide.copy(id = newGuideId)
                         }
@@ -178,8 +187,14 @@ class GuideViewModel(
                 }
                 GuideContentType.PDF -> {
                     if (pdfUri != null) {
-                        val pdfUrl = guideRepository.uploadPdf(guide.id, pdfUri).getOrNull()
-                        guide.copy(externalUrl = pdfUrl ?: guide.externalUrl)
+                        val uploadResult = guideRepository.uploadPdf(guide.id, pdfUri)
+                        if (uploadResult.isFailure) {
+                            _saveUiState.value = GuideSaveUiState.Error(
+                                uploadResult.exceptionOrNull()?.message ?: "Failed to upload PDF"
+                            )
+                            return@launch
+                        }
+                        guide.copy(externalUrl = uploadResult.getOrNull() ?: guide.externalUrl)
                     } else {
                         guide
                     }

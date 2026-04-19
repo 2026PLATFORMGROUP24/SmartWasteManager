@@ -12,6 +12,9 @@ enum class GuideContentType {
     PDF              // PDF file URL from Firebase Storage
 }
 
+fun isValidYoutubeVideoId(videoId: String): Boolean =
+    videoId.matches(Regex("^[A-Za-z0-9_-]{11}$"))
+
 /**
  * Represents one recycling guide stored in Firestore under recycling_guides/{docId}.
  *

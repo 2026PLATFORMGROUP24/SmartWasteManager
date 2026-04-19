@@ -1,50 +1,76 @@
 package com.platform.smartwastemanager.features.guide.presentation
 
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.FormatBold
-import androidx.compose.material.icons.filled.FormatItalic
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
-import androidx.compose.foundation.layout.FlowRow
+import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
+import dev.jeziellago.compose.markdowntext.MarkdownText
+import kotlinx.coroutines.delay
+import org.json.JSONObject
 
-/**
- * Guide editor screen — used exclusively by drivers to create or edit a recycling guide.
- *
- * Modes:
- *  - Create : [guideId] is null.  A new Firestore document is created on save.
- *  - Edit   : [guideId] is a real Firestore document ID. The document is updated on save.
- *
- * Image flow:
- *  - Existing images (edit mode) are listed with a ✕ button so the driver can remove them.
- *  - Images picked from the gallery are shown locally with a ✕ button before uploading.
- *  - On save, the ViewModel uploads new images and appends the download URLs to Firestore.
- *
- * @param guideId        Null = create mode. Non-null = edit mode (existing document ID).
- * @param currentUserUid UID of the signed-in driver (stored as createdBy on new guides).
- * @param onNavigateBack Called when the driver taps the back arrow.
- * @param onSaveSuccess  Called with the saved guide ID after a successful save.
- */
+private const val DRAFT_AUTOSAVE_INTERVAL_MS = 30_000L
+// Limit PDF uploads to 10MB to reduce mobile upload failures and data usage.
+private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GuideEditorScreen(
@@ -55,54 +81,120 @@ fun GuideEditorScreen(
     onSaveSuccess: (String) -> Unit
 ) {
     val isEditMode = guideId != null
-
     val detailState by viewModel.detailUiState.collectAsStateWithLifecycle()
-    val saveState   by viewModel.saveUiState.collectAsStateWithLifecycle()
+    val saveState by viewModel.saveUiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("guide_editor_drafts", 0) }
+    val draftKey = remember(guideId) { "guide_draft_${guideId ?: "new"}" }
 
-    // ---- Editable form fields ----
-    var title             by remember { mutableStateOf("") }
-    var contentMarkdown   by remember { mutableStateOf("") }
-    // URLs already stored in Firestore — driver can remove individual ones
+    var title by remember { mutableStateOf("") }
+    var contentType by remember { mutableStateOf(GuideContentType.MARKDOWN) }
+    var contentMarkdown by remember { mutableStateOf("") }
+    var externalUrl by remember { mutableStateOf("") }
     var existingImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
-    // Local URIs picked from the gallery (not yet uploaded to Storage)
-    var newImageUris      by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    // Guard so we only pre-fill the form once when the guide data arrives
-    var hasPreloaded      by remember { mutableStateOf(false) }
+    var newImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedPdfName by remember { mutableStateOf<String?>(null) }
+    var selectedPdfSizeBytes by remember { mutableStateOf<Long?>(null) }
+    var showMarkdownPreview by remember { mutableStateOf(false) }
+    var hasPreloaded by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
-    // In edit mode, load the existing guide
+    var initialSnapshot by remember { mutableStateOf("") }
+
+    fun buildSnapshot(): String = listOf(
+        title,
+        contentType.name,
+        contentMarkdown,
+        externalUrl,
+        existingImageUrls.joinToString(","),
+        newImageUris.joinToString(",") { it.toString() },
+        selectedPdfUri?.toString().orEmpty()
+    ).joinToString("||")
+
+    fun loadPdfMeta(uri: Uri) {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                selectedPdfName = if (nameIndex >= 0) cursor.getString(nameIndex) else "selected.pdf"
+                selectedPdfSizeBytes = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else null
+            }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        newImageUris = newImageUris + uris
+    }
+
+    val pdfPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            selectedPdfUri = uri
+            loadPdfMeta(uri)
+        }
+    }
+
     LaunchedEffect(guideId) {
         if (isEditMode && guideId != null) {
             viewModel.loadGuideById(guideId)
+        } else {
+            val raw = prefs.getString(draftKey, null)
+            if (!raw.isNullOrBlank()) {
+                runCatching {
+                    val json = JSONObject(raw)
+                    title = json.optString("title", "")
+                    contentType = runCatching { GuideContentType.valueOf(json.optString("contentType", GuideContentType.MARKDOWN.name)) }
+                        .getOrDefault(GuideContentType.MARKDOWN)
+                    contentMarkdown = json.optString("contentMarkdown", "")
+                    externalUrl = json.optString("externalUrl", "")
+                }
+            }
+            hasPreloaded = true
+            initialSnapshot = buildSnapshot()
         }
     }
 
-    // Pre-fill the form once the guide has loaded
     LaunchedEffect(detailState) {
         if (!hasPreloaded && detailState is GuideDetailUiState.Success) {
-            val guide         = (detailState as GuideDetailUiState.Success).guide
-            title             = guide.title
-            contentMarkdown   = guide.contentMarkdown
+            val guide = (detailState as GuideDetailUiState.Success).guide
+            title = guide.title
+            contentType = guide.getContentType()
+            contentMarkdown = guide.contentMarkdown
+            externalUrl = guide.externalUrl
             existingImageUrls = guide.imageUrls
-            hasPreloaded      = true
+            hasPreloaded = true
+            initialSnapshot = buildSnapshot()
         }
     }
 
-// Navigate away once the save operation completes successfully
-    LaunchedEffect(saveState) {
-        android.util.Log.d("GuideEditor", "LaunchedEffect triggered with state: $saveState")
+    LaunchedEffect(title, contentType, contentMarkdown, externalUrl) {
+        if (!hasPreloaded) return@LaunchedEffect
+        while (true) {
+            delay(DRAFT_AUTOSAVE_INTERVAL_MS)
+            val json = JSONObject().apply {
+                put("title", title)
+                put("contentType", contentType.name)
+                put("contentMarkdown", contentMarkdown)
+                put("externalUrl", externalUrl)
+            }
+            prefs.edit().putString(draftKey, json.toString()).apply()
+        }
+    }
 
+    LaunchedEffect(saveState) {
         if (saveState is GuideSaveUiState.Success) {
-            val savedId = (saveState as GuideSaveUiState.Success).guideId
-            android.util.Log.d("GuideEditor", "Success detected! Navigating with ID: $savedId")
-            onSaveSuccess(savedId)
-            // Reset state AFTER navigation callback completes
-            kotlinx.coroutines.delay(100)
+            prefs.edit().remove(draftKey).apply()
+            onSaveSuccess((saveState as GuideSaveUiState.Success).guideId)
+            delay(100)
             viewModel.resetSaveState()
             viewModel.resetDetailState()
         }
     }
 
-    // Clean up ViewModel state when the driver leaves this screen
     DisposableEffect(Unit) {
         onDispose {
             viewModel.resetSaveState()
@@ -110,41 +202,73 @@ fun GuideEditorScreen(
         }
     }
 
-    // Multi-image picker from the device gallery
-    val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris: List<Uri> ->
-        newImageUris = newImageUris + uris
+    val currentSnapshot = buildSnapshot()
+    val hasUnsavedChanges = hasPreloaded && currentSnapshot != initialSnapshot
+    BackHandler(enabled = hasUnsavedChanges) {
+        showDiscardDialog = true
     }
 
-    // Form validation
-    val isTitleEmpty   = title.isBlank()
-    val isContentEmpty = contentMarkdown.isBlank()
-    val isSaving       = saveState is GuideSaveUiState.Saving
-    val canSave        = !isTitleEmpty && !isContentEmpty && !isSaving
+    val isSaving = saveState is GuideSaveUiState.Saving
+    val isTitleValid = title.isNotBlank()
+    val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
+    val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
+    val isGoogleDocValid = contentType != GuideContentType.GOOGLE_DOC || externalUrl.trim().startsWith("https://docs.google.com/")
+    val isPdfSizeKnownOrNotRequired = selectedPdfUri == null || selectedPdfSizeBytes != null
+    val isPdfSizeValid = selectedPdfUri == null || (selectedPdfSizeBytes ?: Long.MAX_VALUE) <= MAX_PDF_SIZE_BYTES
+    val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())
+
+    val canSave = isTitleValid &&
+            isMarkdownValid &&
+            isYoutubeValid &&
+            isGoogleDocValid &&
+            isPdfSizeKnownOrNotRequired &&
+            isPdfSizeValid &&
+            hasPdfSource &&
+            !isSaving
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Discard changes?") },
+            text = { Text("You have unsaved changes. Are you sure you want to leave?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                    onNavigateBack()
+                }) {
+                    Text("Discard")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (isEditMode) "Edit Guide" else "New Guide") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = {
+                        if (hasUnsavedChanges) showDiscardDialog = true else onNavigateBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor             = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor          = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
         }
     ) { innerPadding ->
-
-        // Show a loading spinner while fetching the guide in edit mode
         if (isEditMode && !hasPreloaded && detailState is GuideDetailUiState.Loading) {
             Box(
-                modifier         = Modifier
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
@@ -160,232 +284,235 @@ fun GuideEditorScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-
-            // ---- Guide title ----
             OutlinedTextField(
-                value         = title,
+                value = title,
                 onValueChange = { title = it },
-                label         = { Text("Guide Title *") },
-                placeholder   = { Text("e.g. How to Sort Recyclables") },
-                modifier      = Modifier.fillMaxWidth(),
-                singleLine    = true,
-                isError       = isTitleEmpty && title.isNotEmpty(),
-                supportingText = if (isTitleEmpty && title.isNotEmpty()) {
-                    { Text("Title is required") }
-                } else null
+                label = { Text("Guide Title *") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
             )
 
-
-            // Replace the entire formatting section with template buttons
-            // Replace the "if (isEasyEditorMode) {" block with just the content:
-            Text(
-                text = "Quick Templates",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                AssistChip(
-                    onClick = {
-                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n# New Heading\n" else "# New Heading\n"
-                    },
-                    label = { Text("Add Heading") }
-                )
-                AssistChip(
-                    onClick = {
-                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n**Bold text here**" else "**Bold text here**"
-                    },
-                    label = { Text("Add Bold") }
-                )
-                AssistChip(
-                    onClick = {
-                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n*Italic text here*" else "*Italic text here*"
-                    },
-                    label = { Text("Add Italic") }
-                )
-                AssistChip(
-                    onClick = {
-                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n- List item 1\n- List item 2\n- List item 3" else "- List item 1\n- List item 2\n- List item 3"
-                    },
-                    label = { Text("Add List") }
-                )
-                AssistChip(
-                    onClick = {
-                        contentMarkdown += if (contentMarkdown.isNotBlank()) "\n\n> 💡 Tip: Add your tip here" else "> 💡 Tip: Add your tip here"
-                    },
-                    label = { Text("Add Tip") }
-                )
+            Text("Content Type", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GuideContentType.entries.forEach { type ->
+                    FilterChip(
+                        selected = contentType == type,
+                        onClick = { contentType = type },
+                        label = {
+                            Text(
+                                when (type) {
+                                    GuideContentType.MARKDOWN -> "Markdown"
+                                    GuideContentType.YOUTUBE -> "YouTube"
+                                    GuideContentType.GOOGLE_DOC -> "Google Doc"
+                                    GuideContentType.PDF -> "PDF"
+                                }
+                            )
+                        }
+                    )
+                }
             }
 
-            // ---- Content editor ----
-            OutlinedTextField(
-                value         = contentMarkdown,
-                onValueChange = { contentMarkdown = it },
-                label = { Text("Guide Content *") },
-                placeholder   = {
+            when (contentType) {
+                GuideContentType.MARKDOWN -> {
+                    Text("Quick Insert", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "**bold**" else "\n\n**bold**" }, label = { Text("Bold") })
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "*italic*" else "\n\n*italic*" }, label = { Text("Italic") })
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "`code`" else "\n\n`code`" }, label = { Text("Code") })
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "> quote" else "\n\n> quote" }, label = { Text("Quote") })
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "- list item" else "\n\n- list item" }, label = { Text("List") })
+                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "# heading" else "\n\n# heading" }, label = { Text("Heading") })
+                    }
+
+                    OutlinedTextField(
+                        value = contentMarkdown,
+                        onValueChange = { contentMarkdown = it },
+                        label = { Text("Markdown Content *") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 220.dp)
+                    )
+
+                    val wordCount = remember(contentMarkdown) {
+                        contentMarkdown.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    }
                     Text(
-                        "# Heading\n\n" +
-                                "Describe how to sort or dispose of this waste type.\n\n" +
-                                "## What goes in:\n" +
-                                "- Item one\n" +
-                                "- Item two\n\n" +
-                                "## What does NOT go in:\n" +
-                                "- Contaminated items\n\n" +
-                                "> 💡 Tip: rinse containers before recycling."
+                        text = "${contentMarkdown.length} chars • $wordCount words",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                },
-                modifier      = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 260.dp),
-                isError       = isContentEmpty && contentMarkdown.isNotEmpty(),
-                supportingText = if (isContentEmpty && contentMarkdown.isNotEmpty()) {
-                    { Text("Content is required") }
-                } else null
-            )
 
-            // Quick Markdown syntax reminder for the driver
-            SuggestionChip(
-                onClick = {},
-                label   = {
-                    Text("💡  # H1   ## H2   **Bold**   *Italic*   - Bullet   > Quote")
-                }
-            )
-
-            // ================================================================
-            // IMAGES SECTION
-            // ================================================================
-
-            Text(
-                text  = "Images",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            // Already-uploaded images (edit mode) — show with a remove button
-            existingImageUrls.forEach { url ->
-                Row(
-                    modifier          = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AsyncImage(
-                        model              = url,
-                        contentDescription = "Existing image",
-                        modifier           = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale       = ContentScale.Crop
+                    SuggestionChip(
+                        onClick = { showMarkdownPreview = !showMarkdownPreview },
+                        label = { Text(if (showMarkdownPreview) "Hide Preview" else "Show Preview") }
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text     = "Uploaded image",
-                        modifier = Modifier.weight(1f),
-                        style    = MaterialTheme.typography.bodySmall,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    IconButton(onClick = { existingImageUrls = existingImageUrls - url }) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Remove image",
-                            tint               = MaterialTheme.colorScheme.error
+
+                    if (showMarkdownPreview) {
+                        MarkdownText(
+                            markdown = contentMarkdown,
+                            style = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
+                    }
+
+                    Text("Images", style = MaterialTheme.typography.titleSmall)
+                    existingImageUrls.forEach { url ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text("Uploaded image", modifier = Modifier.weight(1f))
+                            IconButton(onClick = { existingImageUrls = existingImageUrls - url }) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove")
+                            }
+                        }
+                    }
+                    newImageUris.forEach { uri ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(
+                                model = uri,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text("Ready to upload", modifier = Modifier.weight(1f))
+                            IconButton(onClick = { newImageUris = newImageUris - uri }) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove")
+                            }
+                        }
+                    }
+                    OutlinedButton(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Pick Images")
+                    }
+                }
+
+                GuideContentType.YOUTUBE -> {
+                    OutlinedTextField(
+                        value = externalUrl,
+                        onValueChange = { externalUrl = it.trim() },
+                        label = { Text("YouTube Video ID") },
+                        supportingText = { Text("Enter only the video ID (e.g., dQw4w9WgXcQ), not the full URL") },
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = externalUrl.isNotBlank() && !isYoutubeValid
+                    )
+                    if (externalUrl.isNotBlank() && !isYoutubeValid) {
+                        Text("Invalid YouTube ID", color = MaterialTheme.colorScheme.error)
+                    }
+                    if (isYoutubeValid && externalUrl.isNotBlank()) {
+                        Text("Preview thumbnail", style = MaterialTheme.typography.labelMedium)
+                        AsyncImage(
+                            model = "https://img.youtube.com/vi/${externalUrl.trim()}/0.jpg",
+                            contentDescription = "YouTube preview",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+
+                GuideContentType.GOOGLE_DOC -> {
+                    OutlinedTextField(
+                        value = externalUrl,
+                        onValueChange = { externalUrl = it.trim() },
+                        label = { Text("Google Docs URL") },
+                        supportingText = { Text("Paste the shareable link to your Google Doc") },
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = externalUrl.isNotBlank() && !isGoogleDocValid
+                    )
+                    Text(
+                        "Must be publicly accessible or 'Anyone with the link can view'.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                GuideContentType.PDF -> {
+                    OutlinedButton(onClick = { pdfPicker.launch("application/pdf") }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Select PDF")
+                    }
+                    if (selectedPdfName != null) {
+                        val sizeMb = ((selectedPdfSizeBytes ?: 0L).toDouble() / (1024.0 * 1024.0))
+                        Text(
+                            text = "$selectedPdfName (${String.format("%.2f", sizeMb)} MB)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (!isPdfSizeKnownOrNotRequired) {
+                            Text("Could not determine PDF size.", color = MaterialTheme.colorScheme.error)
+                        } else if (!isPdfSizeValid) {
+                            Text("PDF must be 10MB or less.", color = MaterialTheme.colorScheme.error)
+                        }
+                    } else if (isEditMode && externalUrl.isNotBlank()) {
+                        Text("Existing PDF is attached.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
 
-            // Newly picked local images — show preview with a remove button
-            newImageUris.forEach { uri ->
-                Row(
-                    modifier          = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AsyncImage(
-                        model              = uri,
-                        contentDescription = "New image preview",
-                        modifier           = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale       = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text     = "Ready to upload",
-                        modifier = Modifier.weight(1f),
-                        style    = MaterialTheme.typography.bodySmall,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    IconButton(onClick = { newImageUris = newImageUris - uri }) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Remove image",
-                            tint               = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-
-            // Button to open the device gallery
-            OutlinedButton(
-                onClick  = { imagePicker.launch("image/*") },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Add Images from Gallery")
-            }
-
-            // ---- Save error message ----
             if (saveState is GuideSaveUiState.Error) {
-                Text(
-                    text  = (saveState as GuideSaveUiState.Error).message,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text((saveState as GuideSaveUiState.Error).message, color = MaterialTheme.colorScheme.error)
             }
 
-            // ---- Save / Publish button ----
             Button(
-                onClick  = {
+                onClick = {
                     if (!canSave) return@Button
+                    val normalizedExternal = when (contentType) {
+                        GuideContentType.YOUTUBE,
+                        GuideContentType.GOOGLE_DOC -> externalUrl.trim()
+                        GuideContentType.PDF -> if (selectedPdfUri == null) externalUrl else ""
+                        GuideContentType.MARKDOWN -> ""
+                    }
 
                     val guide = RecyclingGuide(
-                        id              = guideId ?: "",          // empty string on create
-                        title           = title.trim(),
-                        contentMarkdown = contentMarkdown.trim(),
-                        imageUrls       = existingImageUrls,      // ViewModel appends new ones
-                        createdBy       = currentUserUid
+                        id = guideId ?: "",
+                        title = title.trim(),
+                        contentType = contentType.name,
+                        contentMarkdown = if (contentType == GuideContentType.MARKDOWN) contentMarkdown.trim() else "",
+                        externalUrl = normalizedExternal,
+                        imageUrls = if (contentType == GuideContentType.MARKDOWN) existingImageUrls else emptyList(),
+                        createdBy = currentUserUid
                     )
 
+                    val uploadImages = if (contentType == GuideContentType.MARKDOWN) newImageUris else emptyList()
+                    val pdfToUpload = if (contentType == GuideContentType.PDF) selectedPdfUri else null
                     if (isEditMode) {
-                        viewModel.updateGuide(guide, newImageUris)
+                        viewModel.updateGuide(guide, uploadImages, pdfToUpload)
                     } else {
-                        viewModel.createGuide(guide, newImageUris)
+                        viewModel.createGuide(guide, uploadImages, pdfToUpload)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled  = canSave
+                enabled = canSave
             ) {
                 if (isSaving) {
-                    CircularProgressIndicator(
-                        modifier    = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color       = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
                     Text("Saving…")
                 } else {
                     Icon(Icons.Default.Save, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(if (isEditMode) "Update Guide" else "Publish Guide")
                 }
             }
-
-            // Bottom padding so the Save button is never hidden behind the nav bar
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
