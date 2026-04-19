@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -409,7 +410,7 @@ fun GuideEditorScreen(
                         value = externalUrl,
                         onValueChange = { externalUrl = it.trim() },
                         label = { Text("YouTube Video ID") },
-                        supportingText = { Text("Enter only the video ID (e.g., dQw4w9WgXcQ), not the full URL") },
+                        supportingText = { Text("Enter only the video ID (11 characters)") },
                         modifier = Modifier.fillMaxWidth(),
                         isError = externalUrl.isNotBlank() && !isYoutubeValid
                     )
@@ -419,11 +420,11 @@ fun GuideEditorScreen(
                     if (isYoutubeValid && externalUrl.isNotBlank()) {
                         Text("Preview thumbnail", style = MaterialTheme.typography.labelMedium)
                         AsyncImage(
-                            model = "https://img.youtube.com/vi/${externalUrl.trim()}/0.jpg",
+                            model = "https://img.youtube.com/vi/${externalUrl.trim()}/mqdefault.jpg",
                             contentDescription = "YouTube preview",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(180.dp)
+                                .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(12.dp)),
                             contentScale = ContentScale.Crop
                         )
