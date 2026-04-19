@@ -49,11 +49,28 @@ private const val MAX_RENDER_DIMENSION = 2048
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 3f
 private const val ZOOM_STEP = 0.25f
+private const val SLIDER_ENDPOINT_COUNT_OFFSET = 1
+private const val PERCENT_MULTIPLIER = 100
+private val bitmapRecycleLock = Any()
+
+private fun zoomSliderSteps(): Int =
+    (((MAX_ZOOM_SCALE - MIN_ZOOM_SCALE) / ZOOM_STEP).toInt() - SLIDER_ENDPOINT_COUNT_OFFSET)
+        .coerceAtLeast(0)
 
 private fun stablePdfCacheName(url: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
     val hex = digest.joinToString(separator = "") { "%02x".format(it) }
     return "guide_pdf_$hex.pdf"
+}
+
+private fun recycleBitmaps(bitmaps: List<Bitmap>) {
+    synchronized(bitmapRecycleLock) {
+        bitmaps.forEach { bitmap ->
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+        }
+    }
 }
 
 /**
@@ -68,15 +85,14 @@ fun PdfViewer(
 ) {
     val context = LocalContext.current
     var pageBitmaps by remember(pdfUrl) { mutableStateOf<List<Bitmap>>(emptyList()) }
-    var pageCount by remember { mutableIntStateOf(0) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var zoomScale by remember { mutableFloatStateOf(MIN_ZOOM_SCALE) }
+    var pageCount by remember(pdfUrl) { mutableIntStateOf(0) }
+    var isLoading by remember(pdfUrl) { mutableStateOf(true) }
+    var errorMessage by remember(pdfUrl) { mutableStateOf<String?>(null) }
+    var zoomScale by remember(pdfUrl) { mutableFloatStateOf(MIN_ZOOM_SCALE) }
 
     DisposableEffect(pdfUrl) {
         onDispose {
-            pageBitmaps.forEach(Bitmap::recycle)
-            pageBitmaps = emptyList()
+            recycleBitmaps(pageBitmaps)
         }
     }
 
@@ -85,8 +101,9 @@ fun PdfViewer(
         errorMessage = null
         pageCount = 0
         zoomScale = MIN_ZOOM_SCALE
-        pageBitmaps.forEach(Bitmap::recycle)
+        val previousBitmaps = pageBitmaps
         pageBitmaps = emptyList()
+        recycleBitmaps(previousBitmaps)
 
         runCatching {
             withContext(Dispatchers.IO) {
@@ -158,6 +175,7 @@ fun PdfViewer(
                 value = zoomScale,
                 onValueChange = { zoomScale = it },
                 valueRange = MIN_ZOOM_SCALE..MAX_ZOOM_SCALE,
+                steps = zoomSliderSteps(),
                 modifier = Modifier.weight(1f)
             )
 
@@ -168,8 +186,9 @@ fun PdfViewer(
             }
         }
 
+        val currentZoomPercentage = (zoomScale * PERCENT_MULTIPLIER).toInt()
         Text(
-            text = "Zoom ${(zoomScale * 100).toInt()}%",
+            text = "Zoom $currentZoomPercentage%",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
