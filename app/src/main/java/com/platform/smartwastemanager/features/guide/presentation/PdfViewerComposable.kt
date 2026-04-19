@@ -43,6 +43,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URL
+import java.security.MessageDigest
+
+private const val MAX_RENDER_DIMENSION = 2048
+private const val MIN_ZOOM_SCALE = 1f
+private const val MAX_ZOOM_SCALE = 4f
+
+private fun stablePdfCacheName(url: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
+    val hex = digest.joinToString(separator = "") { "%02x".format(it) }
+    return "guide_pdf_$hex.pdf"
+}
 
 @Composable
 fun PdfViewer(
@@ -57,7 +68,7 @@ fun PdfViewer(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var scale by remember { mutableFloatStateOf(1f) }
+    var scale by remember { mutableFloatStateOf(MIN_ZOOM_SCALE) }
     var translationX by remember { mutableFloatStateOf(0f) }
     var translationY by remember { mutableFloatStateOf(0f) }
 
@@ -73,7 +84,7 @@ fun PdfViewer(
         pageCount = 0
         currentPage = 0
         pdfFile = null
-        scale = 1f
+        scale = MIN_ZOOM_SCALE
         translationX = 0f
         translationY = 0f
         renderedPage?.recycle()
@@ -81,10 +92,16 @@ fun PdfViewer(
 
         runCatching {
             withContext(Dispatchers.IO) {
-                val targetFile = File(context.cacheDir, "guide_pdf_${pdfUrl.hashCode()}.pdf")
-                URL(pdfUrl).openStream().use { input ->
-                    FileOutputStream(targetFile).use { output ->
-                        input.copyTo(output)
+                val parsedUrl = URL(pdfUrl)
+                require(parsedUrl.protocol.equals("https", ignoreCase = true)) {
+                    "Only HTTPS PDF URLs are supported."
+                }
+                val targetFile = File(context.cacheDir, stablePdfCacheName(pdfUrl))
+                if (!targetFile.exists() || refreshTick > 0) {
+                    parsedUrl.openStream().use { input ->
+                        FileOutputStream(targetFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
                 targetFile
@@ -125,9 +142,16 @@ fun PdfViewer(
                 ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                     PdfRenderer(descriptor).use { renderer ->
                         renderer.openPage(currentPage).use { page ->
+                            val pageWidth = page.width.toFloat()
+                            val pageHeight = page.height.toFloat()
+                            val renderScale = minOf(
+                                MAX_RENDER_DIMENSION / pageWidth,
+                                MAX_RENDER_DIMENSION / pageHeight,
+                                1f
+                            )
                             val bitmap = Bitmap.createBitmap(
-                                page.width.coerceAtMost(2048),
-                                page.height.coerceAtMost(2048),
+                                (pageWidth * renderScale).toInt().coerceAtLeast(1),
+                                (pageHeight * renderScale).toInt().coerceAtLeast(1),
                                 Bitmap.Config.ARGB_8888
                             )
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -141,7 +165,7 @@ fun PdfViewer(
             renderedPage = bitmap
             isLoading = false
             errorMessage = null
-            scale = 1f
+            scale = MIN_ZOOM_SCALE
             translationX = 0f
             translationY = 0f
         }.onFailure {
@@ -169,11 +193,11 @@ fun PdfViewer(
                     contentDescription = "PDF page ${currentPage + 1}",
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(currentPage, renderedPage) {
+                        .pointerInput(currentPage) {
                             detectTransformGestures { _, pan, zoom, _ ->
-                                val nextScale = (scale * zoom).coerceIn(1f, 4f)
+                                val nextScale = (scale * zoom).coerceIn(MIN_ZOOM_SCALE, MAX_ZOOM_SCALE)
                                 scale = nextScale
-                                if (nextScale == 1f) {
+                                if (nextScale == MIN_ZOOM_SCALE) {
                                     translationX = 0f
                                     translationY = 0f
                                 } else {
