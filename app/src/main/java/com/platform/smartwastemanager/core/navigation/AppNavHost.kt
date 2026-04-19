@@ -114,7 +114,7 @@ fun AppNavHost(
                 isDriver             = isDriver,
                 onNavigateToManage   = { navController.navigate(Routes.MANAGE_SCHEDULES) },
                 onNavigateToGuide    = { guideId ->
-                    navController.navigate(Routes.buildGuideDetail(guideId))
+                   navController.navigate(Routes.buildGuideDetail(guideId))
                 },
                 onNavigateToZones    = { _, _ -> /* Deprecated - not used in new zone-based system */ },
                 onNavigateToManagePoints = {

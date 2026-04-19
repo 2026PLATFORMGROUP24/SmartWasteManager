@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
@@ -52,9 +52,6 @@ fun HomeScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     var isRefreshing by remember { mutableStateOf(false) }
-    var hasNewInfoDetected by remember { mutableStateOf(false) }
-    var hasInitialSnapshot by remember { mutableStateOf(false) }
-    var previousMarkedSnapshot by remember { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
 
     LaunchedEffect(uiState) {
         when (uiState) {
@@ -68,15 +65,6 @@ fun HomeScreen(
             }
             else -> {}
         }
-    }
-
-    LaunchedEffect(collectionPoints) {
-        val current = collectionPoints.associate { it.id to it.markedForCollectionDays.toSet() }
-        if (hasInitialSnapshot && previousMarkedSnapshot != current) {
-            hasNewInfoDetected = true
-        }
-        previousMarkedSnapshot = current
-        hasInitialSnapshot = true
     }
 
     Scaffold(
@@ -102,68 +90,61 @@ fun HomeScreen(
             onRefresh = {
                 isRefreshing = true
                 viewModel.refreshCurrentView()
-                hasNewInfoDetected = false
             }
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Spacer(modifier = Modifier.height(16.dp))
 
-            if (hasNewInfoDetected) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                if (isDriver && isDriverViewActive) {
+
                     Text(
-                        text = "New information detected, drag down to refresh",
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        text       = "Collection Schedule: Driver",
+                        style      = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                else {
+                    Text(
+                        text       = "Collection Schedule",
+                        style      = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (!isDriver || !isDriverViewActive) {
+                    UserHomeContent(
+                        collectionPoints = collectionPoints,
+                        selectedPoint    = selectedPoint,
+                        schedules        = schedules,
+                        onSelectPoint    = { viewModel.selectCollectionPoint(it) },
+                        onNavigateToManagePoints = onNavigateToManagePoints,
+                        onNavigateToGuide = onNavigateToGuide,
+                        onMarkForCollection = { pointId, scheduleDayId ->
+                            viewModel.markPointForCollection(pointId, scheduleDayId)
+                        },
+                        onUnmarkFromCollection = { pointId, scheduleDayId ->
+                            viewModel.unmarkPointFromCollection(pointId, scheduleDayId)
+                        }
+                    )
+                } else {
+                    DriverHomeContent(
+                        zones             = zones,
+                        selectedZone      = selectedZone,
+                        schedules         = schedules,
+                        onSelectZone      = { viewModel.selectZone(it) },
+                        onNavigateToManageZones = onNavigateToManageZones,
+                        onCalculateRoute  = onCalculateRoute
+                    )
+                }
             }
-
-            Text(
-                text       = "Collection Schedule",
-                style      = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (!isDriver || !isDriverViewActive) {
-                UserHomeContent(
-                    collectionPoints = collectionPoints,
-                    selectedPoint    = selectedPoint,
-                    schedules        = schedules,
-                    onSelectPoint    = { viewModel.selectCollectionPoint(it) },
-                    onNavigateToManagePoints = onNavigateToManagePoints,
-                    onNavigateToGuide = onNavigateToGuide,
-                    onMarkForCollection = { pointId, scheduleDayId ->
-                        viewModel.markPointForCollection(pointId, scheduleDayId)
-                    },
-                    onUnmarkFromCollection = { pointId, scheduleDayId ->
-                        viewModel.unmarkPointFromCollection(pointId, scheduleDayId)
-                    }
-                )
-            } else {
-                DriverHomeContent(
-                    zones             = zones,
-                    selectedZone      = selectedZone,
-                    schedules         = schedules,
-                    onSelectZone      = { viewModel.selectZone(it) },
-                    onNavigateToManageZones = onNavigateToManageZones,
-                    onCalculateRoute  = onCalculateRoute
-                )
-            }
-        }
         }
         LaunchedEffect(isRefreshing) {
             if (isRefreshing) {
@@ -334,10 +315,8 @@ private fun UserScheduleCard(
     val isToday = daysUntilCollection == 0
 
     val badgeText = when {
-        isToday && isMarked -> "TODAY • READY"
         isToday -> "TODAY"
         daysUntilCollection == 1 -> "TOMORROW"
-        isMarked -> "READY ✓"
         daysUntilCollection != null && daysUntilCollection > 1 -> "IN $daysUntilCollection DAYS"
         else -> null
     }
@@ -345,14 +324,18 @@ private fun UserScheduleCard(
     val containerColor = when {
         isToday && isMarked -> MaterialTheme.colorScheme.primaryContainer
         isToday -> MaterialTheme.colorScheme.tertiaryContainer
-        isMarked -> Color(0xFF4CAF50).copy(alpha = 0.2f)
-        else -> MaterialTheme.colorScheme.surfaceVariant
+        isMarked -> Color(0xFF4CAF50).copy(alpha = 0.15f)
+        else -> MaterialTheme.colorScheme.secondaryContainer
     }
 
     Card(
-        modifier  = Modifier.fillMaxWidth(),
+        modifier  = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = schedule.linkedGuideId != null) {
+                schedule.linkedGuideId?.let { onNavigateToGuide(it) }
+            },
         colors    = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isMarked) 4.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 4.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -361,80 +344,55 @@ private fun UserScheduleCard(
                 verticalAlignment     = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text       = schedule.dayOfWeek,
-                        style      = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    badgeText?.let { badge ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(
-                            color = if (isMarked) {
-                                Color(0xFF2E7D32).copy(alpha = 0.15f)
-                            } else {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            },
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text(
-                                text = badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text       = schedule.dayOfWeek,
+                            style      = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        badgeText?.let { badge ->
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = if (isToday) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                },
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text = badge,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isToday) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    },
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
-                }
-
-                if (selectedPoint != null) {
-                    IconButton(onClick = {
-                        if (isMarked) {
-                            onUnmarkFromCollection(selectedPoint.id, schedule.id)
-                        } else {
-                            onMarkForCollection(selectedPoint.id, schedule.id)
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = if (isMarked) "Ready for collection" else "Mark ready for collection",
-                            tint = if (isMarked) Color(0xFF2E7D32) else MaterialTheme.colorScheme.outline
+                    if (!schedule.collectionTimeRange.isNullOrBlank()) {
+                        Text(
+                            text  = "🕐 ${schedule.collectionTimeRange}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 2.dp)
                         )
                     }
                 }
-            }
 
-            if (!schedule.collectionTimeRange.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "🕐",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = schedule.collectionTimeRange,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-
-            if (selectedPoint != null && !isMarked) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(onClick = {
-                    onMarkForCollection(selectedPoint.id, schedule.id)
-                }) {
-                    Text("Ready for Collection")
-                }
+                Icon(
+                    imageVector        = Icons.Default.Book,
+                    contentDescription = "Recycling Guide",
+                    tint               = if (schedule.linkedGuideId != null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                    modifier           = Modifier.size(24.dp)
+                )
             }
 
             if (schedule.wasteCategories.isNotEmpty()) {
@@ -452,12 +410,46 @@ private fun UserScheduleCard(
                 }
             }
 
-            if (schedule.linkedGuideId != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(onClick = { onNavigateToGuide(schedule.linkedGuideId) }) {
-                    Text("📖 View Recycling Guide")
+            // Mark/Unmark buttons
+            if (selectedPoint != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isMarked) {
+                        OutlinedButton(
+                            onClick = { onUnmarkFromCollection(selectedPoint.id, schedule.id) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Unmark")
+                        }
+                    } else {
+                        Button(
+                            onClick = { onMarkForCollection(selectedPoint.id, schedule.id) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Ready for Collection")
+                        }
+                    }
                 }
             }
+
+            // Guide hint at the bottom
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text  = if (schedule.linkedGuideId != null) {
+                    "Tap to view recycling guide for this day"
+                } else {
+                    "No recycling guide available"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (schedule.linkedGuideId != null) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
         }
     }
 }
@@ -468,8 +460,8 @@ private fun String.toDayOfWeekOrNull(): DayOfWeek? {
 
     return DayOfWeek.entries.firstOrNull { day ->
         day.name.equals(normalized, ignoreCase = true) ||
-            day.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
-                .equals(normalized, ignoreCase = true)
+                day.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                    .equals(normalized, ignoreCase = true)
     }
 }
 
@@ -494,7 +486,7 @@ private fun DriverHomeContent(
             value         = activeZone?.name ?: if (zones.isEmpty()) "No zones" else "Select zone",
             onValueChange = {},
             readOnly      = true,
-            label         = { Text("Zone") },
+            label         = { Text("Active Zone") },
             trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier      = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
