@@ -62,11 +62,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
+import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 private const val DRAFT_AUTOSAVE_INTERVAL_MS = 30_000L
+// Requirement: 10MB max PDF size.
 private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -209,7 +211,7 @@ fun GuideEditorScreen(
     val isSaving = saveState is GuideSaveUiState.Saving
     val isTitleValid = title.isNotBlank()
     val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
-    val isYoutubeValid = contentType != GuideContentType.YOUTUBE || externalUrl.trim().matches(Regex("^[A-Za-z0-9_-]{11}$"))
+    val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
     val isGoogleDocValid = contentType != GuideContentType.GOOGLE_DOC || externalUrl.trim().startsWith("https://docs.google.com/")
     val isPdfSizeValid = (selectedPdfSizeBytes ?: 0L) <= MAX_PDF_SIZE_BYTES
     val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())

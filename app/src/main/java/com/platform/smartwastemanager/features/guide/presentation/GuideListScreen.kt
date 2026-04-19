@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
+import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -255,15 +256,17 @@ private fun GuideListCard(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
                 GuideContentType.YOUTUBE -> {
-                    AsyncImage(
-                        model = "https://img.youtube.com/vi/${guide.externalUrl}/0.jpg",
-                        contentDescription = "YouTube thumbnail",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(170.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (isValidYoutubeVideoId(guide.externalUrl.trim())) {
+                        AsyncImage(
+                            model = "https://img.youtube.com/vi/${guide.externalUrl.trim()}/0.jpg",
+                            contentDescription = "YouTube thumbnail",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(170.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
                 }
                 GuideContentType.GOOGLE_DOC,
                 GuideContentType.PDF -> Unit

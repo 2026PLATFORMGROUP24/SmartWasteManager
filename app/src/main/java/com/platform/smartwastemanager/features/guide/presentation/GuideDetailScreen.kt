@@ -62,6 +62,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
+import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import java.io.File
 import java.net.URL
@@ -202,7 +203,7 @@ fun GuideDetailScreen(
 
                             GuideContentType.YOUTUBE -> {
                                 val videoId = guide.externalUrl.trim()
-                                if (!videoId.matches(Regex("^[A-Za-z0-9_-]{11}$"))) {
+                                if (!isValidYoutubeVideoId(videoId)) {
                                     Text("Invalid YouTube video ID", color = MaterialTheme.colorScheme.error)
                                 } else {
                                     YouTubeContent(videoId = videoId)
