@@ -118,9 +118,6 @@ dependencies {
     // ---- YouTube Player (for embedded playback) ----
     implementation(libs.youtube.player)
 
-    // ---- PDF Viewer ----
-    implementation(libs.pdf.viewer)
-
     // ---- Testing ----
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

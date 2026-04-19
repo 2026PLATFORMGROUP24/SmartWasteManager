@@ -57,20 +57,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.github.barteksc.pdfviewer.PDFView
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import com.platform.smartwastemanager.features.guide.domain.isValidYoutubeVideoId
 import dev.jeziellago.compose.markdowntext.MarkdownText
-import java.io.File
-import java.net.URL
-import java.security.MessageDigest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -303,11 +295,13 @@ private fun GoogleDocContent(url: String) {
 
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
 
     Box(modifier = Modifier.fillMaxWidth().height(520.dp)) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
+                    webViewRef.value = this
                     settings.javaScriptEnabled = true
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -343,77 +337,71 @@ private fun GoogleDocContent(url: String) {
                     .padding(8.dp)
             )
         }
+
+        SuggestionChip(
+            onClick = {
+                isLoading = true
+                error = null
+                webViewRef.value?.reload()
+            },
+            label = { Text("Refresh") },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        )
     }
 }
 
 @Composable
 private fun PdfContent(url: String) {
-    val context = LocalContext.current
+    if (url.isBlank()) {
+        Text("Invalid PDF URL", color = MaterialTheme.colorScheme.error)
+        return
+    }
+
+    val pdfViewerUrl = remember(url) {
+        "https://docs.google.com/viewer?url=${Uri.encode(url)}&embedded=true"
+    }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var file by remember(url) { mutableStateOf<File?>(null) }
-
-    LaunchedEffect(url) {
-        isLoading = true
-        error = null
-        file = null
-
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val safeHash = sha256(url)
-                val target = File(context.cacheDir, "guide_$safeHash.pdf")
-                val connection = URL(url).openConnection().apply { connect() }
-                val declaredSize = connection.contentLengthLong
-                if (declaredSize > MAX_PDF_SIZE_BYTES) {
-                    throw IllegalStateException("PDF exceeds 10MB limit.")
-                }
-
-                connection.getInputStream().use { input ->
-                    target.outputStream().use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var total = 0L
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            total += read
-                            if (total > MAX_PDF_SIZE_BYTES) {
-                                throw IllegalStateException("PDF exceeds 10MB limit.")
-                            }
-                            output.write(buffer, 0, read)
-                        }
-                    }
-                }
-                target
-            }
-        }
-
-        result.onSuccess {
-            file = it
-            isLoading = false
-        }.onFailure {
-            error = "Failed to download PDF."
-            isLoading = false
-        }
-    }
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(520.dp)
     ) {
-        file?.let { pdfFile ->
-            AndroidView(
-                factory = { context -> PDFView(context, null) },
-                update = { view ->
-                    view.fromFile(pdfFile)
-                        .enableSwipe(true)
-                        .enableDoubletap(true)
-                        .swipeHorizontal(false)
-                        .load()
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    webViewRef.value = this
+                    settings.javaScriptEnabled = true
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                            isLoading = false
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            errorObj: WebResourceError?
+                        ) {
+                            isLoading = false
+                            error = "Could not load PDF."
+                        }
+                    }
+                    loadUrl(pdfViewerUrl)
+                }
+            },
+            update = {
+                if (it.url != pdfViewerUrl) {
+                    isLoading = true
+                    error = null
+                    it.loadUrl(pdfViewerUrl)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -426,6 +414,18 @@ private fun PdfContent(url: String) {
                 modifier = Modifier.align(Alignment.Center)
             )
         }
+
+        SuggestionChip(
+            onClick = {
+                isLoading = true
+                error = null
+                webViewRef.value?.reload()
+            },
+            label = { Text("Refresh") },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        )
     }
 }
 
@@ -444,9 +444,4 @@ private fun normalizeMarkdown(content: String): String {
         }
     }
     return result.toString()
-}
-
-private fun sha256(input: String): String {
-    val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
-    return bytes.joinToString("") { "%02x".format(it) }
 }
