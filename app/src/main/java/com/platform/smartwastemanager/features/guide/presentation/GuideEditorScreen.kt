@@ -66,6 +66,9 @@ import dev.jeziellago.compose.markdowntext.MarkdownText
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
+private const val DRAFT_AUTOSAVE_INTERVAL_MS = 30_000L
+private const val MAX_PDF_SIZE_BYTES = 10L * 1024L * 1024L
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GuideEditorScreen(
@@ -169,7 +172,7 @@ fun GuideEditorScreen(
     LaunchedEffect(title, contentType, contentMarkdown, externalUrl) {
         if (!hasPreloaded) return@LaunchedEffect
         while (true) {
-            delay(30_000)
+            delay(DRAFT_AUTOSAVE_INTERVAL_MS)
             val json = JSONObject().apply {
                 put("title", title)
                 put("contentType", contentType.name)
@@ -208,7 +211,7 @@ fun GuideEditorScreen(
     val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
     val isYoutubeValid = contentType != GuideContentType.YOUTUBE || externalUrl.trim().matches(Regex("^[A-Za-z0-9_-]{11}$"))
     val isGoogleDocValid = contentType != GuideContentType.GOOGLE_DOC || externalUrl.trim().startsWith("https://docs.google.com/")
-    val isPdfSizeValid = (selectedPdfSizeBytes ?: 0L) <= 10L * 1024L * 1024L
+    val isPdfSizeValid = (selectedPdfSizeBytes ?: 0L) <= MAX_PDF_SIZE_BYTES
     val hasPdfSource = contentType != GuideContentType.PDF || selectedPdfUri != null || (isEditMode && externalUrl.isNotBlank())
 
     val canSave = isTitleValid && isMarkdownValid && isYoutubeValid && isGoogleDocValid && isPdfSizeValid && hasPdfSource && !isSaving

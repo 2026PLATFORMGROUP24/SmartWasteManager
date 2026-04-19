@@ -65,6 +65,7 @@ import com.platform.smartwastemanager.features.guide.domain.GuideContentType
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import java.io.File
 import java.net.URL
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -289,6 +290,14 @@ private fun YouTubeContent(videoId: String) {
 
 @Composable
 private fun GoogleDocContent(url: String) {
+    if (!url.startsWith("https://docs.google.com/")) {
+        Text(
+            "Invalid Google Docs URL. It must start with https://docs.google.com/",
+            color = MaterialTheme.colorScheme.error
+        )
+        return
+    }
+
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -296,7 +305,7 @@ private fun GoogleDocContent(url: String) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
-                    settings.javaScriptEnabled = true
+                    settings.javaScriptEnabled = false
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             isLoading = false
@@ -348,7 +357,8 @@ private fun PdfContent(url: String) {
 
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                val target = File(context.cacheDir, "guide_${url.hashCode()}.pdf")
+                val safeHash = sha256(url)
+                val target = File(context.cacheDir, "guide_$safeHash.pdf")
                 URL(url).openStream().use { input ->
                     target.outputStream().use { output -> input.copyTo(output) }
                 }
@@ -413,4 +423,9 @@ private fun normalizeMarkdown(content: String): String {
         }
     }
     return result.toString()
+}
+
+private fun sha256(input: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+    return bytes.joinToString("") { "%02x".format(it) }
 }
