@@ -26,6 +26,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.firebase.firestore.GeoPoint
 import com.google.maps.android.compose.*
 import com.platform.smartwastemanager.core.util.LocationHelper
 import com.platform.smartwastemanager.features.map.domain.MapPin
@@ -74,6 +75,18 @@ fun MapScreen(
     val defaultPosition = LatLng(-26.2041, 28.0473)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 11f)
+    }
+
+    // New: track the street name at the camera's center
+    var currentStreetName by remember { mutableStateOf("") }
+
+    // Update street name when camera stops moving
+    LaunchedEffect(cameraPositionState.isMoving) {
+        if (!cameraPositionState.isMoving) {
+            val center = cameraPositionState.position.target
+            val street = LocationHelper.getStreetName(context, GeoPoint(center.latitude, center.longitude))
+            currentStreetName = if (street != "Unknown location") street else ""
+        }
     }
 
     // Centre on device location when screen opens
@@ -195,71 +208,106 @@ fun MapScreen(
             // ================================================================
             // SEARCH BAR
             // ================================================================
-            Card(
-                modifier  = Modifier
+            Column(
+                modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(16.dp)
                     .fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                shape     = RoundedCornerShape(24.dp),
-                colors    = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                Card(
+                    modifier  = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    shape     = RoundedCornerShape(24.dp),
+                    colors    = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
                     )
-                    TextField(
-                        value         = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder   = { Text("Search location...") },
-                        modifier      = Modifier.weight(1f),
-                        colors        = TextFieldDefaults.colors(
-                            focusedContainerColor   = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor   = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                        singleLine      = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                if (searchQuery.isNotBlank()) {
-                                    scope.launch {
-                                        isSearching = true
-                                        val result = LocationHelper.getCoordinates(context, searchQuery)
-                                        isSearching = false
-                                        if (result != null) {
-                                            cameraPositionState.animate(
-                                                CameraUpdateFactory.newLatLngZoom(
-                                                    LatLng(result.latitude, result.longitude), 15f
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextField(
+                            value         = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder   = { Text("Search location...") },
+                            modifier      = Modifier.weight(1f),
+                            colors        = TextFieldDefaults.colors(
+                                focusedContainerColor   = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor   = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            singleLine      = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    if (searchQuery.isNotBlank()) {
+                                        scope.launch {
+                                            isSearching = true
+                                            val result = LocationHelper.getCoordinates(context, searchQuery)
+                                            isSearching = false
+                                            if (result != null) {
+                                                cameraPositionState.animate(
+                                                    CameraUpdateFactory.newLatLngZoom(
+                                                        LatLng(result.latitude, result.longitude), 15f
+                                                    )
                                                 )
-                                            )
-                                            focusManager.clearFocus()
-                                        } else {
-                                            snackbarHostState.showSnackbar("Location not found")
+                                                focusManager.clearFocus()
+                                            } else {
+                                                snackbarHostState.showSnackbar("Location not found")
+                                            }
                                         }
                                     }
                                 }
+                            )
+                        )
+                        if (isSearching) {
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear")
                             }
-                        )
-                    )
-                    if (isSearching) {
-                        CircularProgressIndicator(
-                            modifier    = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
+                        }
+                    }
+                }
+
+                // Show current location details if available
+                if (currentStreetName.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Place,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = currentStreetName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 }
@@ -272,7 +320,7 @@ fun MapScreen(
                 Card(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(top = 80.dp, start = 16.dp),
+                        .padding(top = 150.dp, start = 16.dp), // Pushed down to avoid overlap
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer
                             .copy(alpha = 0.93f)
@@ -334,7 +382,7 @@ fun MapScreen(
                         Card(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
-                                .padding(top = 80.dp, start = 16.dp, end = 16.dp),
+                                .padding(top = 150.dp, start = 16.dp, end = 16.dp),
                             colors   = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant
                             )
@@ -357,7 +405,7 @@ fun MapScreen(
                     Card(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 80.dp, start = 16.dp, end = 16.dp),
+                            .padding(top = 150.dp, start = 16.dp, end = 16.dp),
                         colors   = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         )
@@ -375,7 +423,7 @@ fun MapScreen(
                     onClick        = { viewModel.toggleDismissMode() },
                     modifier       = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 80.dp, end = 16.dp),
+                        .padding(top = 150.dp, end = 16.dp),
                     containerColor = if (isDismissMode)
                         MaterialTheme.colorScheme.error
                     else
