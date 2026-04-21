@@ -39,6 +39,8 @@ import com.platform.smartwastemanager.features.collectionpoint.presentation.Coll
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
 import com.platform.smartwastemanager.features.collectionpoint.presentation.ManageCollectionPointsScreen
 import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
+import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistViewModel
+import com.platform.smartwastemanager.features.aiassist.presentation.AiHistoryScreen
 
 /**
  * Central navigation host for the app.
@@ -59,6 +61,7 @@ fun AppNavHost(
     notificationViewModel: NotificationViewModel,
     announcementViewModel: AnnouncementViewModel,
     collectionPointViewModel: CollectionPointViewModel,
+    aiAssistViewModel: AiAssistViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -243,6 +246,7 @@ fun AppNavHost(
         composable(Routes.REPORT_FORM) {
             ReportFormScreen(
                 viewModel                  = reportViewModel,
+                aiAssistViewModel          = aiAssistViewModel,
                 currentUserUid             = currentUser?.uid ?: "",
                 onNavigateBack             = { navController.popBackStack() },
                 onSubmitSuccess            = {
@@ -250,7 +254,12 @@ fun AppNavHost(
                         popUpTo(Routes.REPORT) { inclusive = true }
                     }
                 },
-                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) }
+                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) },
+                onNavigateToScan           = {
+                    navController.navigate(Routes.SCAN) {
+                        popUpTo(Routes.REPORT_FORM) { inclusive = true }
+                    }
+                }
             )
         }
 
@@ -342,6 +351,16 @@ fun AppNavHost(
             NotificationScreen(
                 viewModel      = notificationViewModel,
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // ======================== AI HISTORY ========================
+
+        composable(Routes.AI_HISTORY) {
+            AiHistoryScreen(
+                viewModel        = aiAssistViewModel,
+                currentUserUid   = currentUser?.uid ?: "",
+                onNavigateBack   = { navController.popBackStack() }
             )
         }
     }

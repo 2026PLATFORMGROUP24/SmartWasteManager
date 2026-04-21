@@ -38,10 +38,12 @@ import com.platform.smartwastemanager.features.report.presentation.ReportViewMod
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
 import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
+import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistViewModel
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 
 class MainActivity : ComponentActivity() {
@@ -116,6 +118,9 @@ fun SmartWasteManagerAppContent() {
             app.container.mapRepository
         )
     )
+    val aiAssistViewModel: AiAssistViewModel = viewModel(
+        factory = AiAssistViewModel.factory(app.container.aiAssistRepository)
+    )
 
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
@@ -186,6 +191,7 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
         currentDestination?.route?.startsWith("home/zones/")          == true -> "Collection Zones"
         currentDestination?.route == Routes.NOTIFICATIONS    -> "Notification Centre"
+        currentDestination?.route == Routes.AI_HISTORY       -> "Ask AI History"
         else                                                  -> "Smart Waste Manager"
     }
 
@@ -232,7 +238,20 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // FIX 2: Notification bell — visible ONLY to drivers in Driver View
+                            // AI History button — visible to all authenticated users
+                            if (currentUser != null) {
+                                IconButton(onClick = {
+                                    navController.navigate(Routes.AI_HISTORY) {
+                                        launchSingleTop = true
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector        = Icons.Default.History,
+                                        contentDescription = "Ask AI History"
+                                    )
+                                }
+                            }
+                            // Notification bell — visible ONLY to drivers in Driver View
                             if (isDriver && isDriverViewActive) {
                                 IconButton(onClick = {
                                     navController.navigate(Routes.NOTIFICATIONS) {
@@ -309,23 +328,19 @@ fun SmartWasteManagerAppContent() {
             if (!isOnAuthScreen) {
                 NavigationBar {
                     BottomNavItem.all.forEach { item ->
-                        val isReportDisabled = isDriver && isDriverViewActive && item.route == Routes.REPORT
                         NavigationBarItem(
                             icon     = { Icon(item.icon, contentDescription = item.label) },
                             label    = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
                             } == true,
-                            enabled = !isReportDisabled,
                             onClick  = {
-                                if (!isReportDisabled) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState    = true
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
                                     }
+                                    launchSingleTop = true
+                                    restoreState    = true
                                 }
                             }
                         )
@@ -346,6 +361,7 @@ fun SmartWasteManagerAppContent() {
             notificationViewModel     = notificationViewModel,
             announcementViewModel     = announcementViewModel,
             collectionPointViewModel  = collectionPointViewModel,
+            aiAssistViewModel         = aiAssistViewModel,
             modifier                  = Modifier.padding(innerPadding)
         )
     }
