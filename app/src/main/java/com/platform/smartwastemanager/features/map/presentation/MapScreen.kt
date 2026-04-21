@@ -39,6 +39,7 @@ import kotlinx.coroutines.delay
 
 private const val MAP_LOAD_WAIT_DELAY_MS = 250L
 private const val MAP_LOAD_WAIT_MAX_MS = 2_000L
+private const val TAG = "MapScreen"
 
 /**
  * Map screen — shows pending waste report pins and, for drivers in driver view,
@@ -268,7 +269,7 @@ fun MapScreen(
                                             snackbarHostState.showSnackbar("Location not found for \"$query\"")
                                         }
                                     } catch (e: Exception) {
-                                        Log.e("MapScreen", "Search failed for query=\"$query\"", e)
+                                        Log.e(TAG, "Search failed for query=\"$query\"", e)
                                         snackbarHostState.showSnackbar("Search failed. Please try again.")
                                     } finally {
                                         isSearching = false
