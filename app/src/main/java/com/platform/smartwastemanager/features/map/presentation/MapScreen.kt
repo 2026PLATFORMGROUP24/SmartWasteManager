@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.map.presentation
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -63,6 +64,7 @@ fun MapScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var isMapLoaded by remember { mutableStateOf(false) }
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -169,7 +171,8 @@ fun MapScreen(
                 uiSettings = MapUiSettings(
                     myLocationButtonEnabled = false,
                     zoomControlsEnabled     = true
-                )
+                ),
+                onMapLoaded = { isMapLoaded = true }
             ) {
                 // ---- Waste report pins (everyone) ----
                 if (uiState is MapUiState.Success) {
@@ -235,18 +238,29 @@ fun MapScreen(
                                 if (searchQuery.isNotBlank()) {
                                     scope.launch {
                                         isSearching = true
-                                        val result = LocationHelper.getCoordinates(context, searchQuery)
-                                        isSearching = false
+                                        val query = searchQuery.trim()
+                                        val result = LocationHelper.getCoordinates(context, query)
                                         if (result != null) {
-                                            cameraPositionState.animate(
-                                                CameraUpdateFactory.newLatLngZoom(
-                                                    LatLng(result.latitude, result.longitude), 15f
+                                            try {
+                                                if (!isMapLoaded) {
+                                                    delay(250)
+                                                }
+                                                cameraPositionState.animate(
+                                                    CameraUpdateFactory.newLatLngZoom(
+                                                        LatLng(result.latitude, result.longitude), 15f
+                                                    )
                                                 )
-                                            )
-                                            focusManager.clearFocus()
+                                                focusManager.clearFocus()
+                                            } catch (e: Exception) {
+                                                Log.e("MapScreen", "Failed to animate map search result", e)
+                                                snackbarHostState.showSnackbar(
+                                                    "Found \"$query\", but couldn't move map. Try again."
+                                                )
+                                            }
                                         } else {
-                                            snackbarHostState.showSnackbar("Location not found")
+                                            snackbarHostState.showSnackbar("Location not found for \"$query\"")
                                         }
+                                        isSearching = false
                                     }
                                 }
                             }
@@ -471,6 +485,13 @@ private fun MapPinMarker(
 ) {
     val position      = LatLng(pin.location.latitude, pin.location.longitude)
     val formattedTime = remember(pin.timestamp) { dateFormat.format(pin.timestamp.toDate()) }
+    LaunchedEffect(pin.reportId, pin.location.latitude, pin.location.longitude, pin.streetName) {
+        Log.d(
+            "MapPinMarker",
+            "Rendering pin reportId=${pin.reportId}, " +
+                    "lat=${pin.location.latitude}, lng=${pin.location.longitude}, street=${pin.streetName}"
+        )
+    }
 
     val markerHue = if (pin.reportType == ReportType.OVERFLOWING_BIN.displayName)
         BitmapDescriptorFactory.HUE_RED
