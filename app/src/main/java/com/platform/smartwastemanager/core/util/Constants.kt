@@ -10,6 +10,7 @@ object Constants {
     const val COLLECTION_SCHEDULES = "schedules"
     const val COLLECTION_WASTE_REPORTS = "waste_reports"
     const val COLLECTION_RECYCLING_GUIDES = "recycling_guides"
+    const val COLLECTION_AI_ASSIST_HISTORY = "ai_assist_history"
 
     // ---- Firestore Field Names ----
     const val FIELD_ROLE = "role"
@@ -20,6 +21,7 @@ object Constants {
 
     // ---- Firebase Storage Paths ----
     const val STORAGE_GUIDE_IMAGES = "guide_images"
+    const val STORAGE_AI_ASSIST_IMAGES = "ai_assist_images"
 
     // ---- DataStore Keys ----
     const val DATASTORE_NAME = "smart_waste_prefs"

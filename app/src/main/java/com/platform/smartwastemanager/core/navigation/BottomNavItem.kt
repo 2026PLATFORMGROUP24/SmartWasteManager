@@ -2,10 +2,10 @@ package com.platform.smartwastemanager.core.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.Report
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -20,7 +20,7 @@ data class BottomNavItem(
         val all = listOf(
             BottomNavItem(Routes.HOME,          "Home",          Icons.Default.Home),
             BottomNavItem(Routes.ANNOUNCEMENTS, "Announce", Icons.Default.Campaign),
-            BottomNavItem(Routes.REPORT,        "Report",        Icons.Default.Report),
+            BottomNavItem(Routes.REPORT,        "Scan",          Icons.Default.DocumentScanner),
             BottomNavItem(Routes.MAP,           "Map",           Icons.Default.LocationOn),
             BottomNavItem(Routes.GUIDES,        "Guides",        Icons.Default.MenuBook)
         )

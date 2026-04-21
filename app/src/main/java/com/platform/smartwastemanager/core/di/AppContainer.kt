@@ -1,6 +1,7 @@
 package com.platform.smartwastemanager.core.di
 
 import android.content.Context
+import com.platform.smartwastemanager.features.aiassist.data.AiAssistRepository
 import com.platform.smartwastemanager.core.util.ViewToggleRepository
 import com.platform.smartwastemanager.features.auth.data.AuthRepository
 import com.platform.smartwastemanager.features.guide.data.GuideRepository
@@ -46,4 +47,7 @@ class AppContainer(context: Context) {
 
     // ---- Collection Points (zone-based system) ----
     val collectionPointRepository = CollectionPointRepository()
+
+    // ---- AI Assist (Ask AI feature — free Gemini 1.5 Flash API) ----
+    val aiAssistRepository = AiAssistRepository()
 }

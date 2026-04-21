@@ -47,6 +47,9 @@ object Routes {
     // Notifications (Phase 6 — driver only)
     const val NOTIFICATIONS = "notifications"
 
+    // AI Assist History
+    const val AI_HISTORY = "ai-history"
+
     // Announcements
     const val ANNOUNCEMENTS = "announcements"
 

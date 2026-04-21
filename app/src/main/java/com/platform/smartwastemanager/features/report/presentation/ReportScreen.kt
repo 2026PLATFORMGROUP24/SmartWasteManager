@@ -2,23 +2,26 @@ package com.platform.smartwastemanager.features.report.presentation
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Camera
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
- * Entry point for the Waste Reporting feature.
+ * Entry point for the Scan/Report feature.
  *
  * Presents two options to the user:
  * 1. Scan with Camera — takes a photo, AI classifies the waste type,
- *    then pre-fills the report form.
- * 2. Report Manually — opens the form directly with default values.
+ *    then opens the form with both "Waste Reporting" and "Ask AI" tabs.
+ * 2. Skip Scanning — opens the form directly with default values;
+ *    the Ask AI tab will prompt the user to scan an image.
+ *
+ * The driver-mode restriction has been removed: drivers can now access
+ * this feature in both driver and user views.
  */
 @Composable
 fun ReportScreen(
@@ -26,19 +29,17 @@ fun ReportScreen(
     onNavigateToScan: () -> Unit,
     onNavigateToForm: () -> Unit
 ) {
-    val enabled = !isDriverInDriverView
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .alpha(if (enabled) 1f else 0.45f),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
 
         // ---- Title ----
         Text(
-            text = "📷 Report Waste",
+            text = "📷 Scan & Report Waste",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.primary
         )
@@ -46,7 +47,7 @@ fun ReportScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Choose how you want to report waste.\nThe AI scan will auto-detect the category for you.",
+            text = "Scan a waste item for AI-powered recycling advice and reporting.\nThe AI scan will auto-detect the category for you.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -59,11 +60,10 @@ fun ReportScreen(
             onClick = onNavigateToScan,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            enabled = enabled
+                .height(56.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Camera,
+                imageVector = Icons.Default.CameraAlt,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )
@@ -73,30 +73,20 @@ fun ReportScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ---- Report Manually button ----
+        // ---- Skip Scanning button (formerly "Report Manually") ----
         OutlinedButton(
             onClick = onNavigateToForm,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            enabled = enabled
+                .height(56.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Edit,
+                imageVector = Icons.Default.SkipNext,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Report Manually")
-        }
-
-        if (!enabled) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Switch to user view to report waste",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Text("Skip Scanning")
         }
     }
 }

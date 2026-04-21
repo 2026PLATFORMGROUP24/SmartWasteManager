@@ -68,6 +68,14 @@ class ReportViewModel(
     private val _isLowConfidence = MutableStateFlow(false)
     val isLowConfidence: StateFlow<Boolean> = _isLowConfidence.asStateFlow()
 
+    /**
+     * The last bitmap classified by [classifyImage].
+     * Exposed so the Ask AI tab can display and upload the image without
+     * the ViewModel needing to know about the AI assist feature.
+     */
+    private val _lastClassifiedBitmap = MutableStateFlow<Bitmap?>(null)
+    val lastClassifiedBitmap: StateFlow<Bitmap?> = _lastClassifiedBitmap.asStateFlow()
+
     // Report type is always "Regular Pickup" — not user-selectable.
     // Stored as a private constant; never exposed as a StateFlow.
     private val reportType = "Regular Pickup"
@@ -170,6 +178,7 @@ class ReportViewModel(
     fun classifyImage(bitmap: Bitmap) {
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
+            _lastClassifiedBitmap.value = bitmap
             val result = wasteImageClassifier.classify(bitmap)
             _selectedCategory.value = result.category.displayName
             _aiLabels.value         = result.topLabels
@@ -209,6 +218,7 @@ class ReportViewModel(
         _aiLabels.value         = emptyList()
         _aiDebugInfo.value      = ""
         _isLowConfidence.value  = false
+        _lastClassifiedBitmap.value = null
         // reportType needs no reset — it is a fixed constant
         _streetName.value       = ""
         _location.value         = GeoPoint(0.0, 0.0)
