@@ -11,7 +11,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** UI state for an in-progress Ask AI session. */
+/**
+ * UI state for an in-progress Ask AI session.
+ *
+ * [Idle] and [Loading] are singleton objects (they carry no data).
+ * [Success] and [Error] are data classes because they carry a payload string.
+ * This asymmetry is the idiomatic sealed-class pattern in Kotlin.
+ */
 sealed class AiAssistUiState {
     object Idle    : AiAssistUiState()
     object Loading : AiAssistUiState()
@@ -143,9 +149,16 @@ class AiAssistViewModel(
                 response  = response,
                 userId    = userId
             )
-            repository.saveEntry(entry)
+            val saveResult = repository.saveEntry(entry)
 
-            _uiState.value = AiAssistUiState.Success(response)
+            if (saveResult.isSuccess) {
+                _uiState.value = AiAssistUiState.Success(response)
+            } else {
+                // Show the AI response even if history save failed, but flag the error
+                _uiState.value = AiAssistUiState.Success(
+                    response + "\n\n⚠️ Note: This result could not be saved to your history."
+                )
+            }
         }
     }
 

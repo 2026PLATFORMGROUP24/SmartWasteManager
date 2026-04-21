@@ -398,6 +398,13 @@ private fun PromptInputSection(
             maxLines      = 4
         )
 
+        // One-prompt limit hint
+        Text(
+            text  = "ℹ️ You can send one question per scan session.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
         // Send button
         Button(
             onClick  = onSend,
@@ -415,7 +422,7 @@ private fun PromptInputSection(
             } else {
                 Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Send (1 prompt allowed)", fontWeight = FontWeight.Bold)
+                Text("Ask AI", fontWeight = FontWeight.Bold)
             }
         }
     }

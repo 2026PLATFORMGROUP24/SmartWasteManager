@@ -1,6 +1,7 @@
 package com.platform.smartwastemanager.features.aiassist.data
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
@@ -68,6 +69,7 @@ class AiAssistRepository {
             ref.putBytes(bytes).await()
             ref.downloadUrl.await().toString()
         } catch (e: Exception) {
+            Log.e("AiAssistRepository", "Image upload failed", e)
             ""
         }
     }
@@ -88,14 +90,9 @@ class AiAssistRepository {
      */
     suspend fun askGemini(labels: List<String>, userPrompt: String): String {
         val model = gemini
-            ?: return "Gemini API key is not configured.\n\n" +
-                "The AI feature uses the FREE Gemini 1.5 Flash API (no credit card required).\n\n" +
-                "To set it up:\n" +
-                "1. Visit https://aistudio.google.com/app/apikey\n" +
-                "2. Sign in with your Google account and create a free API key.\n" +
-                "3. Add the following line to your local.properties file:\n" +
-                "   GEMINI_API_KEY=your_key_here\n" +
-                "4. Rebuild the app."
+            ?: return "AI features are currently unavailable. Please contact support.\n\n" +
+                "(Developer note: GEMINI_API_KEY is not set. Get a free key at " +
+                "https://aistudio.google.com/app/apikey and add it to local.properties.)"
 
         val labelString = labels.joinToString(", ")
         val fullPrompt = """
