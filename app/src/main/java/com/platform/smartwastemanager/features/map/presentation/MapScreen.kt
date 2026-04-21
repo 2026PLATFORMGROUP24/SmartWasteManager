@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.map.presentation
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +37,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+private const val MAP_LOAD_WAIT_DELAY_MS = 250L
+private const val MAP_LOAD_WAIT_MAX_MS = 2_000L
+private const val TAG = "MapScreen"
+
 /**
  * Map screen — shows pending waste report pins and, for drivers in driver view,
  * also shows their zone circles as overlays.
@@ -63,6 +68,7 @@ fun MapScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var isMapLoaded by remember { mutableStateOf(false) }
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -169,7 +175,8 @@ fun MapScreen(
                 uiSettings = MapUiSettings(
                     myLocationButtonEnabled = false,
                     zoomControlsEnabled     = true
-                )
+                ),
+                onMapLoaded = { isMapLoaded = true }
             ) {
                 // ---- Waste report pins (everyone) ----
                 if (uiState is MapUiState.Success) {
@@ -232,12 +239,26 @@ fun MapScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
-                                if (searchQuery.isNotBlank()) {
-                                    scope.launch {
-                                        isSearching = true
-                                        val result = LocationHelper.getCoordinates(context, searchQuery)
-                                        isSearching = false
+                                scope.launch {
+                                    val query = searchQuery.trim()
+                                    if (query.isBlank()) return@launch
+                                    isSearching = true
+                                    try {
+                                        val result = LocationHelper.getCoordinates(context, query)
                                         if (result != null) {
+                                            var waitedMs = 0L
+                                            while (!isMapLoaded && waitedMs < MAP_LOAD_WAIT_MAX_MS) {
+                                                delay(MAP_LOAD_WAIT_DELAY_MS)
+                                                waitedMs += MAP_LOAD_WAIT_DELAY_MS
+                                            }
+
+                                            if (!isMapLoaded) {
+                                                snackbarHostState.showSnackbar(
+                                                    "Map is still loading. Please try search again."
+                                                )
+                                                return@launch
+                                            }
+
                                             cameraPositionState.animate(
                                                 CameraUpdateFactory.newLatLngZoom(
                                                     LatLng(result.latitude, result.longitude), 15f
@@ -245,8 +266,13 @@ fun MapScreen(
                                             )
                                             focusManager.clearFocus()
                                         } else {
-                                            snackbarHostState.showSnackbar("Location not found")
+                                            snackbarHostState.showSnackbar("Location not found for \"$query\"")
                                         }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Search failed for query=\"$query\"", e)
+                                        snackbarHostState.showSnackbar("Search failed. Please try again.")
+                                    } finally {
+                                        isSearching = false
                                     }
                                 }
                             }
@@ -471,6 +497,13 @@ private fun MapPinMarker(
 ) {
     val position      = LatLng(pin.location.latitude, pin.location.longitude)
     val formattedTime = remember(pin.timestamp) { dateFormat.format(pin.timestamp.toDate()) }
+    LaunchedEffect(pin.reportId) {
+        Log.d(
+            "MapPinMarker",
+            "Rendering pin reportId=${pin.reportId}, " +
+                    "lat=${pin.location.latitude}, lng=${pin.location.longitude}, street=${pin.streetName}"
+        )
+    }
 
     val markerHue = if (pin.reportType == ReportType.OVERFLOWING_BIN.displayName)
         BitmapDescriptorFactory.HUE_RED

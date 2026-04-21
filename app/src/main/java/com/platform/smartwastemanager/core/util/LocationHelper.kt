@@ -4,11 +4,14 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Geocoder
 import android.os.Build
+import android.os.SystemClock
+import android.util.Log
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 /**
@@ -18,6 +21,10 @@ import java.util.Locale
  * Requires ACCESS_FINE_LOCATION permission to be granted before calling.
  */
 object LocationHelper {
+    private const val TAG = "LocationHelper"
+    private const val FRESH_LOCATION_TIMEOUT_MS = 10_000L
+    private const val MAX_CACHED_LOCATION_AGE_MS = 5 * 60 * 1000L
+    private const val NANOS_TO_MILLIS = 1_000_000L
 
     /**
      * Returns the device's current [GeoPoint] using FusedLocationProviderClient.
@@ -43,13 +50,20 @@ object LocationHelper {
 
             // --- Step 1: Fresh high-accuracy fix ---
             val cancellationToken = CancellationTokenSource()
-            val freshLocation = client.getCurrentLocation(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                cancellationToken.token
-            ).await()
+            val freshLocation = withTimeoutOrNull(FRESH_LOCATION_TIMEOUT_MS) {
+                client.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    cancellationToken.token
+                ).await()
+            }
+            if (freshLocation == null) {
+                cancellationToken.cancel()
+                Log.w(TAG, "Fresh location fix timed out after ${FRESH_LOCATION_TIMEOUT_MS}ms")
+            }
 
-            if (freshLocation != null) {
+            if (freshLocation != null && isValidLatLng(freshLocation.latitude, freshLocation.longitude)) {
                 // Got a fresh GPS fix — use it.
+                Log.d(TAG, "Using fresh GPS location: (${freshLocation.latitude}, ${freshLocation.longitude})")
                 return GeoPoint(freshLocation.latitude, freshLocation.longitude)
             }
 
@@ -58,14 +72,49 @@ object LocationHelper {
             // PRIORITY_HIGH_ACCURACY returns null on a cold start.
             val lastLocation = client.lastLocation.await()
             if (lastLocation != null) {
-                GeoPoint(lastLocation.latitude, lastLocation.longitude)
+                val ageMs = getLocationAgeMs(lastLocation)
+                if (
+                    ageMs != null &&
+                    ageMs <= MAX_CACHED_LOCATION_AGE_MS &&
+                    isValidLatLng(lastLocation.latitude, lastLocation.longitude)
+                ) {
+                    Log.d(
+                        TAG,
+                        "Using cached location age=${ageMs}ms: (${lastLocation.latitude}, ${lastLocation.longitude})"
+                    )
+                    GeoPoint(lastLocation.latitude, lastLocation.longitude)
+                } else {
+                    Log.w(
+                        TAG,
+                        "Rejecting stale/invalid cached location age=${ageMs ?: -1}ms: " +
+                                "(${lastLocation.latitude}, ${lastLocation.longitude})"
+                    )
+                    GeoPoint(0.0, 0.0)
+                }
             } else {
                 // No fix available at all — return zero so callers can detect this.
+                Log.w(TAG, "No fresh or cached location available, returning fallback (0,0)")
                 GeoPoint(0.0, 0.0)
             }
 
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to get location", e)
             GeoPoint(0.0, 0.0)
+        }
+    }
+
+    private fun isValidLatLng(latitude: Double, longitude: Double): Boolean {
+        return latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
+                !(latitude == 0.0 && longitude == 0.0)
+    }
+
+    private fun getLocationAgeMs(location: android.location.Location): Long? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / NANOS_TO_MILLIS)
+                .coerceAtLeast(0L)
+        } else {
+            val now = System.currentTimeMillis()
+            (now - location.time).coerceAtLeast(0L)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.report.data
 
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.platform.smartwastemanager.core.util.Constants
@@ -17,6 +18,9 @@ import kotlinx.coroutines.tasks.await
  * - dismissReport: permanently deletes a report document
  */
 class ReportRepository {
+    private companion object {
+        const val TAG = "ReportRepository"
+    }
 
     private val firestore = FirebaseFirestore.getInstance()
 
@@ -30,6 +34,18 @@ class ReportRepository {
      */
     suspend fun submitReport(report: WasteReport): Result<Unit> {
         return try {
+            val lat = report.location.latitude
+            val lng = report.location.longitude
+            val isZero = lat == 0.0 && lng == 0.0
+            val hasValidRange = lat in -90.0..90.0 && lng in -180.0..180.0
+            if (isZero || !hasValidRange) {
+                Log.w(TAG, "Rejecting report with invalid coordinates lat=$lat, lng=$lng")
+                return Result.failure(
+                    IllegalArgumentException("Invalid GPS coordinates. Please refresh location and try again.")
+                )
+            }
+
+            Log.d(TAG, "Submitting report with coordinates lat=$lat, lng=$lng")
             // Create a new document reference (generates a unique ID)
             val docRef = collection.document()
 
@@ -46,8 +62,10 @@ class ReportRepository {
             )
 
             docRef.set(data).await()
+            Log.d(TAG, "Report submitted successfully with id=${docRef.id}")
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to submit report", e)
             Result.failure(e)
         }
     }

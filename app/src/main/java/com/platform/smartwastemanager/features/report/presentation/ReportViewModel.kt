@@ -2,6 +2,7 @@ package com.platform.smartwastemanager.features.report.presentation
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -49,6 +50,9 @@ class ReportViewModel(
     private val reportRepository: ReportRepository,
     private val wasteImageClassifier: WasteImageClassifier
 ) : ViewModel() {
+    private companion object {
+        const val TAG = "ReportViewModel"
+    }
 
     // ---- UI state ----
     private val _uiState = MutableStateFlow<ReportUiState>(ReportUiState.Idle)
@@ -195,6 +199,19 @@ class ReportViewModel(
     fun submitReport(reportedByUid: String) {
         viewModelScope.launch {
             _uiState.value = ReportUiState.Loading
+            val lat = _location.value.latitude
+            val lng = _location.value.longitude
+            val isZero = lat == 0.0 && lng == 0.0
+            val hasValidRange = lat in -90.0..90.0 && lng in -180.0..180.0
+
+            if (isZero || !hasValidRange) {
+                Log.w(TAG, "Blocked report submission due to invalid coordinates lat=$lat, lng=$lng")
+                _uiState.value = ReportUiState.Error(
+                    "Could not get a valid GPS location. Please refresh location and try again."
+                )
+                return@launch
+            }
+
             val report = WasteReport(
                 category   = _selectedCategory.value,
                 reportType = reportType,           // always "Regular Pickup"
