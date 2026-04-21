@@ -6,6 +6,67 @@ const { getMessaging }      = require("firebase-admin/messaging");
 initializeApp();
 
 /**
+ * Triggered whenever a new zone document is created in route_zones.
+ *
+ * Scans ALL collection_points that have an empty zoneId ("").
+ * Any point whose (lat, lng) falls within the new zone's circle
+ * (haversine distance <= radiusMeters) gets its zoneId updated to
+ * the new zone's document ID.
+ *
+ * This fixes the "no zone for this area" problem for collection points
+ * that were created before the zone existed.
+ */
+exports.assignZoneToExistingCollectionPoints = onDocumentCreated(
+  "route_zones/{zoneId}",
+  async (event) => {
+    const db     = getFirestore();
+    const zoneId = event.params.zoneId;
+    const zone   = event.data.data();
+
+    const centerLat    = zone.centerLat    || 0;
+    const centerLng    = zone.centerLng    || 0;
+    const radiusMeters = zone.radiusMeters || 1000;
+
+    // Fetch ALL collection points that have no zone assigned yet
+    const snapshot = await db.collection("collection_points")
+      .where("zoneId", "==", "")
+      .get();
+
+    if (snapshot.empty) return null;
+
+    const batch = db.batch();
+    let count   = 0;
+
+    snapshot.docs.forEach((doc) => {
+      const pt  = doc.data();
+      const loc = pt.location; // Firestore GeoPoint has .latitude / .longitude
+      if (!loc) return;
+
+      const dist = haversineMeters(centerLat, centerLng, loc.latitude, loc.longitude);
+      if (dist <= radiusMeters) {
+        batch.update(doc.ref, { zoneId: zoneId });
+        count++;
+      }
+    });
+
+    if (count > 0) await batch.commit();
+    console.log(`Zone ${zoneId}: assigned to ${count} pre-existing collection point(s).`);
+    return null;
+  }
+);
+
+/** Haversine distance in metres between two lat/lng points. */
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R    = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a    = Math.sin(dLat / 2) ** 2 +
+               Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function toRad(deg) { return deg * Math.PI / 180; }
+
+/**
  * Triggered whenever a new document is created in the
  * notification_requests Firestore collection.
  *

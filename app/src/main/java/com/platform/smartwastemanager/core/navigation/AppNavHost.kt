@@ -223,8 +223,10 @@ fun AppNavHost(
         composable(Routes.REPORT) {
             ReportScreen(
                 isDriverInDriverView = isDriverInDriverView,
-                onNavigateToScan = { navController.navigate(Routes.SCAN) },
-                onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
+                currentUserUid       = currentUser?.uid ?: "",
+                viewModel            = reportViewModel,
+                onNavigateToScan     = { navController.navigate(Routes.SCAN) },
+                onNavigateToForm     = { navController.navigate(Routes.REPORT_FORM) }
             )
         }
 

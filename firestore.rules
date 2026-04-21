@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isSignedIn()    { return request.auth != null; }
+    function isOwner(uid)    { return request.auth.uid == uid; }
+    function isDriver()      {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "driver";
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read:  if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // ── Waste Reports ─────────────────────────────────────────────────────────
+    // Users can create reports and read/delete their own.
+    // Drivers can read and delete all pending reports.
+    match /waste_reports/{reportId} {
+      allow create: if isSignedIn()
+                    && request.resource.data.reportedBy == request.auth.uid;
+
+      // Owner can read/delete their own report
+      allow read, delete: if isSignedIn()
+                          && resource.data.reportedBy == request.auth.uid;
+
+      // Drivers can read and delete any report
+      allow read, delete: if isDriver();
+    }
+
+    // ── Collection Points ─────────────────────────────────────────────────────
+    match /collection_points/{pointId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+                            && resource.data.userId == request.auth.uid;
+    }
+
+    // ── Route Zones ───────────────────────────────────────────────────────────
+    match /route_zones/{zoneId} {
+      allow read:   if isSignedIn();
+      allow write:  if isDriver();
+    }
+
+    // ── Schedules ─────────────────────────────────────────────────────────────
+    match /schedules/{scheduleId} {
+      allow read:  if isSignedIn();
+      allow write: if isDriver();
+    }
+
+    // ── Announcements ─────────────────────────────────────────────────────────
+    match /announcements/{docId} {
+      allow read:  if isSignedIn();
+      allow write: if isDriver();
+    }
+
+    // ── Notification Requests (Cloud Function trigger) ────────────────────────
+    match /notification_requests/{docId} {
+      allow read:   if isDriver();
+      allow create: if isDriver();
+    }
+  }
+}
+

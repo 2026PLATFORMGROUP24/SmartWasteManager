@@ -294,7 +294,7 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("hen-of-the-woods")
                 -> WasteCategory.ORGANIC
 
-            // ---- Paper ----
+            // ---- Paper → classified as Recyclable ----
             l.contains("envelope") || l.contains("paper towel") ||
                     l.contains("newspaper") || l.contains("book jacket") ||
                     l.contains("menu") || l.contains("packet") ||
@@ -302,9 +302,9 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("pencil box") || l.contains("comic book") ||
                     l.contains("book") || l.contains("cardboard") ||
                     l.contains("toilet tissue") || l.contains("toilet paper")
-                -> WasteCategory.PAPER
+                -> WasteCategory.RECYCLABLE
 
-            // ---- Glass — check BEFORE generic "bottle" to avoid plastic winning ----
+            // ---- Glass → classified as Mixed Waste ----
             l.contains("beer glass") || l.contains("wine glass") ||
                     l.contains("goblet") || l.contains("beaker") ||
                     l.contains("pitcher, ewer") || l.contains("vase") ||
@@ -312,9 +312,9 @@ class WasteImageClassifier(private val context: Context) {
                     (l.contains("glass") && !l.contains("sunglass") &&
                             !l.contains("magnifying") && !l.contains("looking glass") &&
                             !l.contains("spyglass") && !l.contains("glass, drinking glass"))
-                -> WasteCategory.GLASS
+                -> WasteCategory.MIXED_WASTE
 
-            // ---- Metal ----
+            // ---- Metal → classified as Mixed Waste ----
             l.contains("can opener") || l.contains("tin can") ||
                     l.contains("milk can") || l.contains("watering can") ||
                     l.contains("garbage can") || l.contains("ashcan") ||
@@ -334,9 +334,9 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("foil") || l.contains("metal") ||
                     // pot only if NOT flowerpot
                     (l.contains("pot") && !l.contains("flowerpot") && !l.contains("pottery"))
-                -> WasteCategory.METAL
+                -> WasteCategory.MIXED_WASTE
 
-            // ---- Plastic ----
+            // ---- Plastic → classified as Recyclable ----
             l.contains("water bottle") || l.contains("pop bottle") ||
                     l.contains("plastic bag") || l.contains("shopping basket") ||
                     l.contains("bottlecap") || l.contains("jug") ||
@@ -345,9 +345,9 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("balloon") || l.contains("rubber eraser") ||
                     l.contains("poncho") || l.contains("bib") ||
                     l.contains("plastic") || l.contains("container ship") ||
-                    // generic bottle — after glass checks so glass bottles go to GLASS
+                    // generic bottle — after glass checks so glass bottles go to MIXED_WASTE
                     l.contains("bottle")
-                -> WasteCategory.PLASTIC
+                -> WasteCategory.RECYCLABLE
 
             // ---- Recyclable (general) ----
             l.contains("recycle") || l.contains("recyclable")

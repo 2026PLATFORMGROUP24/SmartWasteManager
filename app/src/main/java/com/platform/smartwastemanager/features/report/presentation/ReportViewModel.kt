@@ -12,9 +12,11 @@ import com.platform.smartwastemanager.features.report.data.ReportRepository
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
 import com.platform.smartwastemanager.features.report.domain.WasteReport
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 /** UI state for the report submission process. */
@@ -53,6 +55,22 @@ class ReportViewModel(
     // ---- UI state ----
     private val _uiState = MutableStateFlow<ReportUiState>(ReportUiState.Idle)
     val uiState: StateFlow<ReportUiState> = _uiState.asStateFlow()
+
+    // ---- User's report history ----
+    private val _userReports = MutableStateFlow<List<WasteReport>>(emptyList())
+    val userReports: StateFlow<List<WasteReport>> = _userReports.asStateFlow()
+
+    private var userReportsJob: Job? = null
+
+    fun loadUserReports(userId: String) {
+        if (userId.isBlank()) return
+        userReportsJob?.cancel()
+        userReportsJob = viewModelScope.launch {
+            reportRepository.getReportsForUser(userId)
+                .catch { emit(emptyList()) }
+                .collect { _userReports.value = it }
+        }
+    }
 
     // ---- Form fields ----
 

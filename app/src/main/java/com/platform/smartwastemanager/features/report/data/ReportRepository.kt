@@ -99,6 +99,45 @@ class ReportRepository {
     }
 
     /**
+     * Returns a live stream of all reports submitted by [userId], ordered newest first.
+     * Sorts in-memory to avoid requiring a Firestore composite index.
+     */
+    fun getReportsForUser(userId: String): Flow<List<WasteReport>> = callbackFlow {
+        val listener = collection
+            .whereEqualTo("reportedBy", userId)   // single-field filter — no composite index needed
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("ReportRepository", "getReportsForUser error: ${error.message}", error)
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val reports = snapshot?.documents?.mapNotNull { doc ->
+                    try {
+                        WasteReport(
+                            id         = doc.getString("id") ?: doc.id,
+                            category   = doc.getString("category") ?: "",
+                            reportType = doc.getString("reportType") ?: "",
+                            location   = doc.getGeoPoint("location")
+                                ?: com.google.firebase.firestore.GeoPoint(0.0, 0.0),
+                            streetName = doc.getString("streetName") ?: "",
+                            reportedBy = doc.getString("reportedBy") ?: "",
+                            timestamp  = doc.getTimestamp("timestamp")
+                                ?: com.google.firebase.Timestamp.now(),
+                            status     = doc.getString("status") ?: "pending"
+                        )
+                    } catch (e: Exception) { null }
+                }
+                    ?.sortedByDescending { it.timestamp.seconds }  // newest first — no Firestore index needed
+                    ?: emptyList()
+                trySend(reports)
+            }
+        awaitClose { listener.remove() }
+    }.catch { e ->
+        android.util.Log.e("ReportRepository", "getReportsForUser flow error: ${e.message}", e)
+        emit(emptyList())
+    }
+
+    /**
      * Permanently deletes a report from Firestore.
      * Called by drivers to remove a pin from the map and route results.
      */
