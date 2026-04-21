@@ -74,7 +74,8 @@ class AiAssistRepository {
      * @param userPrompt The free-text question the user typed (or a quick-prompt).
      * @return           AI-generated response text, or an error message.
      */
-    suspend fun askGemini(@Suppress("UNUSED_PARAMETER") labels: List<String>, @Suppress("UNUSED_PARAMETER") userPrompt: String): String {
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun askGemini(labels: List<String>, userPrompt: String): String {
         return "AI features are currently unavailable."
     }
 

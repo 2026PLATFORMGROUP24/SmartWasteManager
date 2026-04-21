@@ -15,11 +15,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.PI
 
 class HomeViewModel(
     private val scheduleRepository: ScheduleRepository,
@@ -27,6 +29,9 @@ class HomeViewModel(
     private val collectionPointRepository: CollectionPointRepository,
     private val mapRepository: MapRepository
 ) : ViewModel() {
+    private companion object {
+        private const val EARTH_RADIUS_METERS = 6_371_000.0
+    }
 
     private val _collectionPoints = MutableStateFlow<List<CollectionPoint>>(emptyList())
     val collectionPoints: StateFlow<List<CollectionPoint>> = _collectionPoints.asStateFlow()
@@ -52,7 +57,7 @@ class HomeViewModel(
     private var collectionPointsJob: Job? = null
     private var schedulesJob: Job? = null
     private var zonesJob: Job? = null
-    private val zoneBackfillInFlight = mutableSetOf<String>()
+    private val zoneBackfillInFlight = ConcurrentHashMap.newKeySet<String>()
 
     init {
         loadToggleState()
@@ -72,7 +77,9 @@ class HomeViewModel(
                 collectionPointRepository.getCurrentUserPoints()
                     .collect { list ->
                         _collectionPoints.value = list
-                        backfillMissingPointZones(list, _zones.value)
+                        if (_zones.value.isNotEmpty()) {
+                            backfillMissingPointZones(list, _zones.value)
+                        }
 
                         // Update selected point if it exists in the new list
                         _selectedPoint.value?.let { currentSelected ->
@@ -231,7 +238,7 @@ class HomeViewModel(
 
         points
             .asSequence()
-            .filter { it.zoneId.isBlank() && it.id.isNotBlank() && !zoneBackfillInFlight.contains(it.id) }
+            .filter { it.zoneId.isBlank() && it.id.isNotBlank() && it.id !in zoneBackfillInFlight }
             .forEach { point ->
                 val matchingZone = zones.find { zone ->
                     haversineDistanceMeters(
@@ -242,13 +249,14 @@ class HomeViewModel(
                     ) <= zone.radiusMeters
                 } ?: return@forEach
 
-                zoneBackfillInFlight += point.id
-                viewModelScope.launch {
-                    try {
-                        collectionPointRepository.updateCollectionPoint(
-                            point.copy(zoneId = matchingZone.id)
-                        )
-                    } finally {
+                if (zoneBackfillInFlight.add(point.id)) {
+                    viewModelScope.launch {
+                        runCatching {
+                            collectionPointRepository.updateCollectionPoint(
+                                point.copy(zoneId = matchingZone.id)
+                            )
+                        }
+                    }.invokeOnCompletion {
                         zoneBackfillInFlight -= point.id
                     }
                 }
@@ -258,12 +266,13 @@ class HomeViewModel(
     private fun haversineDistanceMeters(
         lat1: Double, lng1: Double, lat2: Double, lng2: Double
     ): Double {
-        val r = 6_371_000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLng = Math.toRadians(lng2 - lng1)
-        val a = sin(dLat / 2).pow(2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2).pow(2)
-        return r * 2 * atan2(sqrt(a), sqrt(1 - a))
+        val dLat = (lat2 - lat1) * PI / 180.0
+        val dLng = (lng2 - lng1) * PI / 180.0
+        val lat1Radians = lat1 * PI / 180.0
+        val lat2Radians = lat2 * PI / 180.0
+        val haversineTerm = sin(dLat / 2).pow(2) +
+            cos(lat1Radians) * cos(lat2Radians) * sin(dLng / 2).pow(2)
+        return EARTH_RADIUS_METERS * 2 * atan2(sqrt(haversineTerm), sqrt(1 - haversineTerm))
     }
 
     fun createSchedule(
