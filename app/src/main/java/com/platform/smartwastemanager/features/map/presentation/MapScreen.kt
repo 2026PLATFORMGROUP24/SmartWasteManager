@@ -38,6 +38,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 
 private const val MAP_LOAD_WAIT_DELAY_MS = 250L
+private const val MAP_LOAD_WAIT_MAX_MS = 2_000L
 
 /**
  * Map screen — shows pending waste report pins and, for drivers in driver view,
@@ -237,31 +238,39 @@ fun MapScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
-                                if (searchQuery.isNotBlank()) {
-                                    scope.launch {
-                                        isSearching = true
-                                        val query = searchQuery.trim()
+                                scope.launch {
+                                    val query = searchQuery.trim()
+                                    if (query.isBlank()) return@launch
+                                    isSearching = true
+                                    try {
                                         val result = LocationHelper.getCoordinates(context, query)
                                         if (result != null) {
-                                            try {
-                                                if (!isMapLoaded) {
-                                                    delay(MAP_LOAD_WAIT_DELAY_MS)
-                                                }
-                                                cameraPositionState.animate(
-                                                    CameraUpdateFactory.newLatLngZoom(
-                                                        LatLng(result.latitude, result.longitude), 15f
-                                                    )
-                                                )
-                                                focusManager.clearFocus()
-                                            } catch (e: Exception) {
-                                                Log.e("MapScreen", "Failed to animate map search result", e)
-                                                snackbarHostState.showSnackbar(
-                                                    "Found \"$query\", but couldn't move map. Try again."
-                                                )
+                                            var waitedMs = 0L
+                                            while (!isMapLoaded && waitedMs < MAP_LOAD_WAIT_MAX_MS) {
+                                                delay(MAP_LOAD_WAIT_DELAY_MS)
+                                                waitedMs += MAP_LOAD_WAIT_DELAY_MS
                                             }
+
+                                            if (!isMapLoaded) {
+                                                snackbarHostState.showSnackbar(
+                                                    "Map is still loading. Please try search again."
+                                                )
+                                                return@launch
+                                            }
+
+                                            cameraPositionState.animate(
+                                                CameraUpdateFactory.newLatLngZoom(
+                                                    LatLng(result.latitude, result.longitude), 15f
+                                                )
+                                            )
+                                            focusManager.clearFocus()
                                         } else {
                                             snackbarHostState.showSnackbar("Location not found for \"$query\"")
                                         }
+                                    } catch (e: Exception) {
+                                        Log.e("MapScreen", "Search failed for query=\"$query\"", e)
+                                        snackbarHostState.showSnackbar("Search failed. Please try again.")
+                                    } finally {
                                         isSearching = false
                                     }
                                 }
