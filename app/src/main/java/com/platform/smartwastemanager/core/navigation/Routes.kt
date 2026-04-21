@@ -28,7 +28,6 @@ object Routes {
 
     // Report
     const val REPORT          = "report"
-    const val SCAN            = "report/scan"
     const val REPORT_FORM     = "report/form"
     const val LOCATION_PICKER = "report/location-picker"
 
@@ -46,9 +45,6 @@ object Routes {
 
     // Notifications (Phase 6 — driver only)
     const val NOTIFICATIONS = "notifications"
-
-    // AI Assist History
-    const val AI_HISTORY = "ai-history"
 
     // Announcements
     const val ANNOUNCEMENTS = "announcements"

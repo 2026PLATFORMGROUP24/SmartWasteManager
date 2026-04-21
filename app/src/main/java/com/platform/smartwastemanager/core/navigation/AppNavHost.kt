@@ -30,7 +30,6 @@ import com.platform.smartwastemanager.features.report.presentation.LocationPicke
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
-import com.platform.smartwastemanager.features.report.presentation.ScanScreen
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationScreen
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementScreen
@@ -39,8 +38,6 @@ import com.platform.smartwastemanager.features.collectionpoint.presentation.Coll
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
 import com.platform.smartwastemanager.features.collectionpoint.presentation.ManageCollectionPointsScreen
 import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
-import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistViewModel
-import com.platform.smartwastemanager.features.aiassist.presentation.AiHistoryScreen
 
 /**
  * Central navigation host for the app.
@@ -61,7 +58,6 @@ fun AppNavHost(
     notificationViewModel: NotificationViewModel,
     announcementViewModel: AnnouncementViewModel,
     collectionPointViewModel: CollectionPointViewModel,
-    aiAssistViewModel: AiAssistViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -225,28 +221,13 @@ fun AppNavHost(
 
         composable(Routes.REPORT) {
             ReportScreen(
-                isDriverInDriverView = isDriverInDriverView,
-                onNavigateToScan = { navController.navigate(Routes.SCAN) },
                 onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
-            )
-        }
-
-        composable(Routes.SCAN) {
-            ScanScreen(
-                viewModel        = reportViewModel,
-                onNavigateToForm = {
-                    navController.navigate(Routes.REPORT_FORM) {
-                        popUpTo(Routes.SCAN) { inclusive = true }
-                    }
-                },
-                onNavigateBack   = { navController.popBackStack() }
             )
         }
 
         composable(Routes.REPORT_FORM) {
             ReportFormScreen(
                 viewModel                  = reportViewModel,
-                aiAssistViewModel          = aiAssistViewModel,
                 currentUserUid             = currentUser?.uid ?: "",
                 onNavigateBack             = { navController.popBackStack() },
                 onSubmitSuccess            = {
@@ -254,12 +235,7 @@ fun AppNavHost(
                         popUpTo(Routes.REPORT) { inclusive = true }
                     }
                 },
-                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) },
-                onNavigateToScan           = {
-                    navController.navigate(Routes.SCAN) {
-                        popUpTo(Routes.REPORT_FORM) { inclusive = true }
-                    }
-                }
+                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) }
             )
         }
 
@@ -354,14 +330,5 @@ fun AppNavHost(
             )
         }
 
-        // ======================== AI HISTORY ========================
-
-        composable(Routes.AI_HISTORY) {
-            AiHistoryScreen(
-                viewModel        = aiAssistViewModel,
-                currentUserUid   = currentUser?.uid ?: "",
-                onNavigateBack   = { navController.popBackStack() }
-            )
-        }
     }
 }

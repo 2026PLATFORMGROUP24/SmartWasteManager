@@ -18,14 +18,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Gemini API key — FREE from Google AI Studio (no credit card required).
-        // Get your free key at: https://aistudio.google.com/app/apikey
-        // Then add the following line to your local.properties file:
-        //   GEMINI_API_KEY=your_key_here
-        // The free tier allows 1,500 requests/day and 15 requests/minute.
-        val geminiApiKey = project.findProperty("GEMINI_API_KEY")?.toString() ?: ""
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
     buildTypes {
@@ -138,6 +130,4 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.retrofit.kotlinx.serialization)
 
-    // ---- Google Generative AI (Gemini) ----
-    implementation(libs.generativeai)
 }

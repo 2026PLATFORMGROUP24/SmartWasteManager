@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class HomeViewModel(
     private val scheduleRepository: ScheduleRepository,
@@ -47,6 +52,7 @@ class HomeViewModel(
     private var collectionPointsJob: Job? = null
     private var schedulesJob: Job? = null
     private var zonesJob: Job? = null
+    private val zoneBackfillInFlight = mutableSetOf<String>()
 
     init {
         loadToggleState()
@@ -66,12 +72,20 @@ class HomeViewModel(
                 collectionPointRepository.getCurrentUserPoints()
                     .collect { list ->
                         _collectionPoints.value = list
+                        backfillMissingPointZones(list, _zones.value)
 
                         // Update selected point if it exists in the new list
                         _selectedPoint.value?.let { currentSelected ->
                             val updated = list.find { it.id == currentSelected.id }
                             if (updated != null) {
                                 _selectedPoint.value = updated // This refreshes the marked status
+                                if (
+                                    !_isDriverViewActive.value &&
+                                    currentSelected.zoneId.isBlank() &&
+                                    updated.zoneId.isNotBlank()
+                                ) {
+                                    selectCollectionPoint(updated)
+                                }
                             } else {
                                 // Current selected point no longer exists (user switched accounts)
                                 _selectedPoint.value = null
@@ -153,6 +167,7 @@ class HomeViewModel(
                 mapRepository.getZones()
                     .collect { list ->
                         _zones.value = list
+                        backfillMissingPointZones(_collectionPoints.value, list)
 
                         // Check if current selected zone still exists
                         _selectedZone.value?.let { currentSelected ->
@@ -209,6 +224,46 @@ class HomeViewModel(
                 }
             }
         }
+    }
+
+    private fun backfillMissingPointZones(points: List<CollectionPoint>, zones: List<Zone>) {
+        if (zones.isEmpty()) return
+
+        points
+            .asSequence()
+            .filter { it.zoneId.isBlank() && it.id.isNotBlank() && !zoneBackfillInFlight.contains(it.id) }
+            .forEach { point ->
+                val matchingZone = zones.find { zone ->
+                    haversineDistanceMeters(
+                        lat1 = point.location.latitude,
+                        lng1 = point.location.longitude,
+                        lat2 = zone.centerLat,
+                        lng2 = zone.centerLng
+                    ) <= zone.radiusMeters
+                } ?: return@forEach
+
+                zoneBackfillInFlight += point.id
+                viewModelScope.launch {
+                    try {
+                        collectionPointRepository.updateCollectionPoint(
+                            point.copy(zoneId = matchingZone.id)
+                        )
+                    } finally {
+                        zoneBackfillInFlight -= point.id
+                    }
+                }
+            }
+    }
+
+    private fun haversineDistanceMeters(
+        lat1: Double, lng1: Double, lat2: Double, lng2: Double
+    ): Double {
+        val r = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = sin(dLat / 2).pow(2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2).pow(2)
+        return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 
     fun createSchedule(
