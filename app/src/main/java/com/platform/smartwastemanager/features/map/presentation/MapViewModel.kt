@@ -22,7 +22,7 @@ sealed class MapUiState {
 data class MapCenterTarget(
     val latitude: Double,
     val longitude: Double,
-    val requestId: Long = System.currentTimeMillis()
+    val triggerTimestamp: Long = System.currentTimeMillis()
 )
 
 /**

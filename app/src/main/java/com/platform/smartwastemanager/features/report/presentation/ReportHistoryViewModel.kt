@@ -3,6 +3,7 @@ package com.platform.smartwastemanager.features.report.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.platform.smartwastemanager.features.report.data.ReportRepository
 import com.platform.smartwastemanager.features.report.domain.WasteReport
 import kotlinx.coroutines.Job
@@ -55,8 +56,19 @@ class ReportHistoryViewModel(
         viewModelScope.launch {
             val result = reportRepository.dismissReport(reportId)
             if (result.isFailure) {
+                val exception = result.exceptionOrNull()
+                val reason = when (exception) {
+                    is FirebaseFirestoreException -> when (exception.code) {
+                        FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                            "You do not have permission to delete this report."
+                        FirebaseFirestoreException.Code.UNAVAILABLE ->
+                            "Network unavailable. Please check your connection and try again."
+                        else -> exception.message
+                    }
+                    else -> exception?.message
+                }?.takeIf { it.isNotBlank() }
                 _uiState.value = ReportHistoryUiState.Error(
-                    result.exceptionOrNull()?.message ?: "Failed to delete report"
+                    reason ?: "Failed to delete report. Please check your connection and try again."
                 )
             }
         }

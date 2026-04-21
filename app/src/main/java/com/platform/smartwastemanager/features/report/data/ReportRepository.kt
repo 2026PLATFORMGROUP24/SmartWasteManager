@@ -82,6 +82,7 @@ class ReportRepository {
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    Log.e(TAG, "Failed to load pending reports", error)
                     // Rule 4: do NOT close(error) — just send an empty list
                     trySend(emptyList())
                     return@addSnapshotListener
@@ -126,6 +127,7 @@ class ReportRepository {
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    Log.e(TAG, "Failed to load user reports for uid=$userUid", error)
                     trySend(emptyList())
                     return@addSnapshotListener
                 }

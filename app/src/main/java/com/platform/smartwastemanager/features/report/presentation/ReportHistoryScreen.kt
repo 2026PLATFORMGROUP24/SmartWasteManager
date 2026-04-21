@@ -50,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 import com.platform.smartwastemanager.features.report.domain.WasteReport
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -141,20 +140,21 @@ fun ReportHistoryScreen(
             }
         }
 
-        LaunchedEffect(isRefreshing) {
-            if (isRefreshing) {
-                delay(700)
-                isRefreshing = false
-            }
+    }
+
+    LaunchedEffect(isRefreshing, uiState) {
+        if (isRefreshing && uiState !is ReportHistoryUiState.Loading) {
+            isRefreshing = false
         }
     }
 
     reportToDelete?.let { report ->
+        val locationName = report.streetName.ifBlank { "Unknown location" }
         AlertDialog(
             onDismissRequest = { reportToDelete = null },
             title = { Text("Delete Report?") },
             text = {
-                Text("Delete your ${report.category} report at ${report.streetName}? This cannot be undone.")
+                Text("Delete your ${report.category} report at \"$locationName\"? This cannot be undone.")
             },
             confirmButton = {
                 TextButton(onClick = {

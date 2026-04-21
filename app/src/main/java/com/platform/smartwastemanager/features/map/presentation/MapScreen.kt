@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap as GoogleMapSdk
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -121,7 +122,7 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(centerTarget?.requestId) {
+    LaunchedEffect(centerTarget?.triggerTimestamp) {
         val target = centerTarget ?: return@LaunchedEffect
         cameraPositionState.animate(
             CameraUpdateFactory.newLatLngZoom(
@@ -182,7 +183,7 @@ fun MapScreen(
                 cameraPositionState = cameraPositionState,
                 properties          = MapProperties(
                     isMyLocationEnabled = locationPermissions.allPermissionsGranted,
-                    mapType             = com.google.android.gms.maps.GoogleMap.MAP_TYPE_NORMAL,
+                    mapType             = GoogleMapSdk.MAP_TYPE_NORMAL,
                     isBuildingsEnabled  = true,
                     isTrafficEnabled    = false
                 ),

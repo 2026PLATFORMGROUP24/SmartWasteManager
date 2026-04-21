@@ -17,6 +17,8 @@ enum class WasteCategory(val displayName: String) {
     companion object {
         /** Returns the enum from a display name string, or MIXED_WASTE as fallback. */
         fun fromDisplayName(name: String): WasteCategory {
+            // Backward compatibility for existing Firestore docs created before
+            // Paper/Plastic were consolidated into Recyclable.
             if (name.equals("Paper", ignoreCase = true) || name.equals("Plastic", ignoreCase = true)) {
                 return RECYCLABLE
             }
