@@ -497,7 +497,7 @@ private fun MapPinMarker(
 ) {
     val position      = LatLng(pin.location.latitude, pin.location.longitude)
     val formattedTime = remember(pin.timestamp) { dateFormat.format(pin.timestamp.toDate()) }
-    LaunchedEffect(pin.reportId, pin.location.latitude, pin.location.longitude, pin.streetName) {
+    LaunchedEffect(pin.reportId) {
         Log.d(
             "MapPinMarker",
             "Rendering pin reportId=${pin.reportId}, " +
