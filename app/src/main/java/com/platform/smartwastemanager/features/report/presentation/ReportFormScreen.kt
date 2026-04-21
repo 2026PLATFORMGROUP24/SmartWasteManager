@@ -204,7 +204,7 @@ private fun WasteReportingTab(
                     )
                     Spacer(Modifier.height(6.dp))
                     aiLabels.take(5).forEach { (label, confidence) ->
-                        val displayLabel = if (label.length > MAX_LABEL_DISPLAY_LENGTH) {
+                        val displayLabel = if (label.length >= MAX_LABEL_DISPLAY_LENGTH) {
                             "${label.take(MAX_LABEL_DISPLAY_LENGTH - 3)}..."
                         } else {
                             label
@@ -265,7 +265,7 @@ private fun WasteReportingTab(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Low confidence scan.",
+                            "Low Confidence Scan",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
