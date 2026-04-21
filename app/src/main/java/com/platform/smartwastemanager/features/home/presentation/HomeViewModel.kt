@@ -29,10 +29,6 @@ class HomeViewModel(
     private val collectionPointRepository: CollectionPointRepository,
     private val mapRepository: MapRepository
 ) : ViewModel() {
-    private companion object {
-        private const val EARTH_RADIUS_METERS = 6_371_000.0
-    }
-
     private val _collectionPoints = MutableStateFlow<List<CollectionPoint>>(emptyList())
     val collectionPoints: StateFlow<List<CollectionPoint>> = _collectionPoints.asStateFlow()
 
@@ -423,6 +419,8 @@ class HomeViewModel(
     }
 
     companion object {
+        private const val EARTH_RADIUS_METERS = 6_371_000.0
+
         fun factory(
             scheduleRepository: ScheduleRepository,
             viewToggleRepository: ViewToggleRepository,
