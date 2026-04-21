@@ -22,6 +22,8 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 
+private const val MAX_LABEL_DISPLAY_LENGTH = 36
+
 /**
  * Waste report form screen.
  */
@@ -210,7 +212,7 @@ private fun WasteReportingTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                label.take(36),
+                                label.take(MAX_LABEL_DISPLAY_LENGTH),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                                 modifier = Modifier.weight(1f)
