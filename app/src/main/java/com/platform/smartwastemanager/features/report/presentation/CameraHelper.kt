@@ -1,9 +1,12 @@
 package com.platform.smartwastemanager.features.report.presentation
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -59,5 +62,25 @@ fun bindCameraToLifecycle(
             }
         },
         mainExecutor
+    )
+}
+
+/**
+ * Extension function to convert ImageProxy to Bitmap.
+ * Handles rotation based on image metadata.
+ */
+fun ImageProxy.toBitmap(): Bitmap {
+    val buffer = planes[0].buffer
+    buffer.rewind()
+    val bytes = ByteArray(buffer.capacity())
+    buffer.get(bytes)
+    val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+
+    // Handle rotation
+    val matrix = Matrix()
+    matrix.postRotate(imageInfo.rotationDegrees.toFloat())
+    
+    return Bitmap.createBitmap(
+        bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
     )
 }

@@ -39,6 +39,8 @@ import com.platform.smartwastemanager.features.collectionpoint.presentation.Coll
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointPickerScreen
 import com.platform.smartwastemanager.features.collectionpoint.presentation.ManageCollectionPointsScreen
 import com.platform.smartwastemanager.features.map.presentation.ZoneMapPickerScreen
+import com.platform.smartwastemanager.features.askai.presentation.AskAiScreen
+import com.platform.smartwastemanager.features.askai.presentation.AskAiViewModel
 
 /**
  * Central navigation host for the app.
@@ -59,6 +61,7 @@ fun AppNavHost(
     notificationViewModel: NotificationViewModel,
     announcementViewModel: AnnouncementViewModel,
     collectionPointViewModel: CollectionPointViewModel,
+    askAiViewModel: AskAiViewModel,
     modifier: Modifier = Modifier
 ) {
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -343,6 +346,15 @@ fun AppNavHost(
         composable(Routes.NOTIFICATIONS) {
             NotificationScreen(
                 viewModel      = notificationViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // ======================== ASK AI ========================
+
+        composable(Routes.ASK_AI) {
+            AskAiScreen(
+                viewModel = askAiViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

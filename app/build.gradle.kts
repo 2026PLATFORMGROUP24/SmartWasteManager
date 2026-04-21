@@ -114,6 +114,9 @@ dependencies {
     // ---- Markdown Renderer ----
     implementation(libs.compose.markdown)
 
+    // ---- Google Generative AI (Gemini) ----
+    implementation(libs.google.generativeai)
+
     // ---- Testing ----
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

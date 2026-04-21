@@ -11,6 +11,7 @@ import com.platform.smartwastemanager.features.report.domain.WasteImageClassifie
 import com.platform.smartwastemanager.core.notifications.NotificationRepository
 import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
 import com.platform.smartwastemanager.features.collectionpoint.data.CollectionPointRepository
+import com.platform.smartwastemanager.features.askai.data.AiRepository
 
 /**
  * AppContainer holds every repository for the lifetime of the app.
@@ -46,4 +47,7 @@ class AppContainer(context: Context) {
 
     // ---- Collection Points (zone-based system) ----
     val collectionPointRepository = CollectionPointRepository()
+
+    // ---- Ask AI ----
+    val aiRepository = AiRepository()
 }

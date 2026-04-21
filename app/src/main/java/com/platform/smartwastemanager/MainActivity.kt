@@ -37,12 +37,13 @@ import com.platform.smartwastemanager.features.notifications.presentation.Notifi
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
-import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
+import com.platform.smartwastemanager.features.askai.presentation.AskAiViewModel
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.AutoAwesome
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,7 +69,6 @@ fun SmartWasteManagerAppContent() {
 
     // =========================================================================
     // ViewModels — created ONCE here at Activity level (Rule 3).
-    // NEVER call viewModel() inside AppNavHost or any composable destination.
     // =========================================================================
 
     val authViewModel: AuthViewModel = viewModel(
@@ -116,10 +116,15 @@ fun SmartWasteManagerAppContent() {
             app.container.mapRepository
         )
     )
+    val askAiViewModel: AskAiViewModel = viewModel(
+        factory = AskAiViewModel.factory(
+            app.container.aiRepository,
+            app.container.wasteImageClassifier
+        )
+    )
 
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
-    // FIX 1: Ensure zones and schedules are reloaded after authentication.
     // =========================================================================
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -132,24 +137,18 @@ fun SmartWasteManagerAppContent() {
     }
 
     authViewModel.onAuthSuccess = {
-        // Reload all data sources that depend on auth
-        homeViewModel.loadCollectionPoints()  // User points
-        homeViewModel.loadZones()            // Driver zones (FIX: was missing)
-        homeViewModel.refreshCurrentView()   // Trigger schedule reload based on current view
+        homeViewModel.loadCollectionPoints()
+        homeViewModel.loadZones()
+        homeViewModel.refreshCurrentView()
         mapViewModel.loadPins()
         guideViewModel.loadGuides()
         announcementViewModel.loadAnnouncements()
         collectionPointViewModel.loadCurrentUserPoints()
     }
 
-    // =========================================================================
-    // onSignOut — called when user logs out
-    // FIX 3: Clear all ViewModels to prevent showing previous user's data
-    // =========================================================================
     authViewModel.onSignOut = {
         homeViewModel.clearAllData()
         collectionPointViewModel.clearAllData()
-        // Other ViewModels can add clearAllData() methods if needed
     }
 
     val currentUser        by authViewModel.currentUser.collectAsStateWithLifecycle()
@@ -181,6 +180,7 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.ANNOUNCEMENTS    -> "Announcements"
         currentDestination?.route == Routes.COLLECTION_POINTS -> "My Collection Points"
         currentDestination?.route == Routes.COLLECTION_POINT_PICKER -> "Set Collection Point"
+        currentDestination?.route == Routes.ASK_AI           -> "Ask AI"
         currentDestination?.route?.startsWith("guides/editor/") == true -> "Edit Guide"
         currentDestination?.route?.startsWith("guides/")              == true -> "Guide"
         currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
@@ -221,7 +221,6 @@ fun SmartWasteManagerAppContent() {
                         title = {
                             Column {
                                 Text(screenTitle)
-                                // Show username below title
                                 currentUser?.username?.let { username ->
                                     Text(
                                         text = "👤 $username",
@@ -232,7 +231,20 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // FIX 2: Notification bell — visible ONLY to drivers in Driver View
+                            // ---- ASK AI BUTTON (TOP RIGHT) ----
+                            if (currentDestination?.route != Routes.ASK_AI) {
+                                IconButton(onClick = {
+                                    askAiViewModel.reset()
+                                    navController.navigate(Routes.ASK_AI)
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Ask AI Assistant",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
                             if (isDriver && isDriverViewActive) {
                                 IconButton(onClick = {
                                     navController.navigate(Routes.NOTIFICATIONS) {
@@ -245,7 +257,6 @@ fun SmartWasteManagerAppContent() {
                                     )
                                 }
                             }
-                            // Toggle between driver/user view — visible only to drivers
                             if (isDriver) {
                                 IconButton(onClick = { homeViewModel.toggleDriverView() }) {
                                     Icon(
@@ -274,7 +285,6 @@ fun SmartWasteManagerAppContent() {
                         )
                     )
 
-                    // ---- Global "Viewing as User" banner (Rule 13) ----
                     if (isViewingAsUser) {
                         Row(
                             modifier = Modifier
@@ -346,6 +356,7 @@ fun SmartWasteManagerAppContent() {
             notificationViewModel     = notificationViewModel,
             announcementViewModel     = announcementViewModel,
             collectionPointViewModel  = collectionPointViewModel,
+            askAiViewModel            = askAiViewModel,
             modifier                  = Modifier.padding(innerPadding)
         )
     }

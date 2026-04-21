@@ -33,4 +33,9 @@ object Constants {
     val DAYS_OF_WEEK = listOf(
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
     )
+
+    // ---- AI Settings ----
+    // TODO: Replace with your actual Gemini API Key from Google AI Studio
+    const val GEMINI_API_KEY = "AIzaSyBCFGHdMaB56M4-7CPAs0bLQtBpsfcD_9g"
+    const val GEMINI_MODEL_NAME = "gemini-2.5-flash"
 }

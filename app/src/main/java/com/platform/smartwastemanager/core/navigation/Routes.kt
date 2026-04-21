@@ -54,4 +54,7 @@ object Routes {
     const val COLLECTION_POINTS        = "collection-points"
     const val COLLECTION_POINT_PICKER  = "collection-points/picker"
     const val MANAGE_COLLECTION_POINTS = "collection-points/manage"
+
+    // Ask AI
+    const val ASK_AI = "ask-ai"
 }
