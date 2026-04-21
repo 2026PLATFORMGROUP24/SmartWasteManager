@@ -222,7 +222,6 @@ fun AppNavHost(
 
         composable(Routes.REPORT) {
             ReportScreen(
-                isDriverInDriverView = isDriverInDriverView,
                 onNavigateToScan = { navController.navigate(Routes.SCAN) },
                 onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
             )
@@ -250,7 +249,12 @@ fun AppNavHost(
                         popUpTo(Routes.REPORT) { inclusive = true }
                     }
                 },
-                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) }
+                onNavigateToLocationPicker = { navController.navigate(Routes.LOCATION_PICKER) },
+                onNavigateToScan           = {
+                    navController.navigate(Routes.SCAN) {
+                        popUpTo(Routes.REPORT_FORM) { inclusive = true }
+                    }
+                }
             )
         }
 
@@ -344,5 +348,6 @@ fun AppNavHost(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+
     }
 }

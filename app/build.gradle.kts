@@ -41,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // IMPORTANT: Prevents Gradle from compressing the .tflite model file.
@@ -128,4 +129,5 @@ dependencies {
     implementation(libs.okhttp.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.retrofit.kotlinx.serialization)
+
 }

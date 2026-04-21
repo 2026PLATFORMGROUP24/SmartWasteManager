@@ -37,7 +37,6 @@ import com.platform.smartwastemanager.features.notifications.presentation.Notifi
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
-import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -116,7 +115,6 @@ fun SmartWasteManagerAppContent() {
             app.container.mapRepository
         )
     )
-
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
     // FIX 1: Ensure zones and schedules are reloaded after authentication.
@@ -170,7 +168,6 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.HOME             -> "Home"
         currentDestination?.route == Routes.MANAGE_SCHEDULES -> "Manage Schedules"
         currentDestination?.route == Routes.REPORT           -> "Report Waste"
-        currentDestination?.route == Routes.SCAN             -> "Scan Waste"
         currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
         currentDestination?.route == Routes.MAP              -> "Map"
         currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
@@ -232,7 +229,7 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // FIX 2: Notification bell — visible ONLY to drivers in Driver View
+                            // Notification bell — visible ONLY to drivers in Driver View
                             if (isDriver && isDriverViewActive) {
                                 IconButton(onClick = {
                                     navController.navigate(Routes.NOTIFICATIONS) {
@@ -309,23 +306,19 @@ fun SmartWasteManagerAppContent() {
             if (!isOnAuthScreen) {
                 NavigationBar {
                     BottomNavItem.all.forEach { item ->
-                        val isReportDisabled = isDriver && isDriverViewActive && item.route == Routes.REPORT
                         NavigationBarItem(
                             icon     = { Icon(item.icon, contentDescription = item.label) },
                             label    = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
                             } == true,
-                            enabled = !isReportDisabled,
                             onClick  = {
-                                if (!isReportDisabled) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState    = true
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
                                     }
+                                    launchSingleTop = true
+                                    restoreState    = true
                                 }
                             }
                         )

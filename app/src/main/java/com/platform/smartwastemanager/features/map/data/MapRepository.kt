@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.map.data
 
+import android.util.Log
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.GeoPoint
@@ -26,6 +27,9 @@ import retrofit2.Retrofit
 import kotlin.math.*
 
 class MapRepository {
+    private companion object {
+        const val TAG = "MapRepository"
+    }
 
     private val firestore = Firebase.firestore
 
@@ -50,9 +54,26 @@ class MapRepository {
                 if (error != null) { trySend(emptyList()); return@addSnapshotListener }
                 val pins = snapshot?.documents?.mapNotNull { doc ->
                     try {
+                        val geoPoint = doc.getGeoPoint("location") ?: GeoPoint(0.0, 0.0)
+                        val isZero = geoPoint.latitude == 0.0 && geoPoint.longitude == 0.0
+                        val hasValidRange = geoPoint.latitude in -90.0..90.0 &&
+                                geoPoint.longitude in -180.0..180.0
+
+                        if (isZero || !hasValidRange) {
+                            Log.w(
+                                TAG,
+                                "Skipping invalid map pin doc=${doc.id} " +
+                                        "lat=${geoPoint.latitude}, lng=${geoPoint.longitude}"
+                            )
+                            return@mapNotNull null
+                        }
+                        Log.d(
+                            TAG,
+                            "Loaded map pin doc=${doc.id} lat=${geoPoint.latitude}, lng=${geoPoint.longitude}"
+                        )
                         MapPin(
                             reportId   = doc.id,
-                            location   = doc.getGeoPoint("location") ?: GeoPoint(0.0, 0.0),
+                            location   = geoPoint,
                             category   = doc.getString("category") ?: "",
                             reportType = doc.getString("reportType") ?: "",
                             streetName = doc.getString("streetName") ?: "",
