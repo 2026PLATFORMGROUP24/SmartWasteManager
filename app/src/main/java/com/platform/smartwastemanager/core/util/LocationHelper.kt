@@ -24,6 +24,7 @@ object LocationHelper {
     private const val TAG = "LocationHelper"
     private const val FRESH_LOCATION_TIMEOUT_MS = 10_000L
     private const val MAX_CACHED_LOCATION_AGE_MS = 5 * 60 * 1000L
+    private const val NANOS_TO_MILLIS = 1_000_000L
 
     /**
      * Returns the device's current [GeoPoint] using FusedLocationProviderClient.
@@ -109,7 +110,7 @@ object LocationHelper {
 
     private fun getLocationAgeMs(location: android.location.Location): Long? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L)
+            ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / NANOS_TO_MILLIS)
                 .coerceAtLeast(0L)
         } else {
             val now = System.currentTimeMillis()
