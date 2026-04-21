@@ -19,6 +19,12 @@ sealed class MapUiState {
     data class Error(val message: String) : MapUiState()
 }
 
+data class MapCenterTarget(
+    val latitude: Double,
+    val longitude: Double,
+    val requestId: Long = System.currentTimeMillis()
+)
+
 /**
  * ViewModel for the Map screen.
  *
@@ -46,6 +52,9 @@ class MapViewModel(
     // ---- Dismiss confirmation ----
     private val _pinToConfirmDismiss = MutableStateFlow<MapPin?>(null)
     val pinToConfirmDismiss: StateFlow<MapPin?> = _pinToConfirmDismiss.asStateFlow()
+
+    private val _centerTarget = MutableStateFlow<MapCenterTarget?>(null)
+    val centerTarget: StateFlow<MapCenterTarget?> = _centerTarget.asStateFlow()
 
     private var pinsJob:  Job? = null
     private var zonesJob: Job? = null
@@ -102,6 +111,14 @@ class MapViewModel(
         val pin = _pinToConfirmDismiss.value ?: return
         _pinToConfirmDismiss.value = null
         viewModelScope.launch { mapRepository.dismissReport(pin.reportId) }
+    }
+
+    fun centerOnLocation(latitude: Double, longitude: Double) {
+        _centerTarget.value = MapCenterTarget(latitude = latitude, longitude = longitude)
+    }
+
+    fun clearCenterTarget() {
+        _centerTarget.value = null
     }
 
     companion object {

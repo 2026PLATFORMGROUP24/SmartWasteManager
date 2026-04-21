@@ -27,6 +27,8 @@ import com.platform.smartwastemanager.features.map.presentation.MapScreen
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.report.presentation.LocationPickerMapScreen
+import com.platform.smartwastemanager.features.report.presentation.ReportHistoryScreen
+import com.platform.smartwastemanager.features.report.presentation.ReportHistoryViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportFormScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportScreen
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
@@ -53,6 +55,7 @@ fun AppNavHost(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     reportViewModel: ReportViewModel,
+    reportHistoryViewModel: ReportHistoryViewModel,
     mapViewModel: MapViewModel,
     routeViewModel: RouteViewModel,
     guideViewModel: GuideViewModel,
@@ -223,7 +226,8 @@ fun AppNavHost(
         composable(Routes.REPORT) {
             ReportScreen(
                 onNavigateToScan = { navController.navigate(Routes.SCAN) },
-                onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) }
+                onNavigateToForm = { navController.navigate(Routes.REPORT_FORM) },
+                onNavigateToHistory = { navController.navigate(Routes.REPORT_HISTORY) }
             )
         }
 
@@ -262,6 +266,18 @@ fun AppNavHost(
             LocationPickerMapScreen(
                 viewModel      = reportViewModel,
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.REPORT_HISTORY) {
+            ReportHistoryScreen(
+                viewModel = reportHistoryViewModel,
+                currentUserUid = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToMap = { _, latitude, longitude ->
+                    mapViewModel.centerOnLocation(latitude, longitude)
+                    navController.navigate(Routes.MAP) { launchSingleTop = true }
+                }
             )
         }
 

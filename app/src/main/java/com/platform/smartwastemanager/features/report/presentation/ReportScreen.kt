@@ -3,6 +3,7 @@ package com.platform.smartwastemanager.features.report.presentation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -17,7 +18,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ReportScreen(
     onNavigateToScan: () -> Unit,
-    onNavigateToForm: () -> Unit
+    onNavigateToForm: () -> Unit,
+    onNavigateToHistory: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -75,6 +77,23 @@ fun ReportScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("Skip Scanning")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = onNavigateToHistory,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("View My Reports")
         }
     }
 }

@@ -117,6 +117,47 @@ class ReportRepository {
     }
 
     /**
+     * Returns a live stream of pending reports submitted by one specific user.
+     */
+    fun getUserReports(userUid: String): Flow<List<WasteReport>> = callbackFlow {
+        val listener = collection
+            .whereEqualTo("reportedBy", userUid)
+            .whereEqualTo(Constants.FIELD_STATUS, Constants.FIELD_STATUS_PENDING)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                val reports = snapshot?.documents?.mapNotNull { doc ->
+                    try {
+                        WasteReport(
+                            id         = doc.getString("id") ?: doc.id,
+                            category   = doc.getString("category") ?: "",
+                            reportType = doc.getString("reportType") ?: "",
+                            location   = doc.getGeoPoint("location")
+                                ?: com.google.firebase.firestore.GeoPoint(0.0, 0.0),
+                            streetName = doc.getString("streetName") ?: "",
+                            reportedBy = doc.getString("reportedBy") ?: "",
+                            timestamp  = doc.getTimestamp("timestamp")
+                                ?: com.google.firebase.Timestamp.now(),
+                            status     = doc.getString("status") ?: Constants.FIELD_STATUS_PENDING
+                        )
+                    } catch (_: Exception) {
+                        null
+                    }
+                } ?: emptyList()
+
+                trySend(reports)
+            }
+
+        awaitClose { listener.remove() }
+    }.catch {
+        emit(emptyList())
+    }
+
+    /**
      * Permanently deletes a report from Firestore.
      * Called by drivers to remove a pin from the map and route results.
      */

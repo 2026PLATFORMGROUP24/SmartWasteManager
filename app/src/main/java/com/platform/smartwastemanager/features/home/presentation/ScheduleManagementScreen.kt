@@ -61,8 +61,8 @@ import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 
 private val ALL_CATEGORIES = listOf(
-    "Recyclable", "Organic", "Paper", "Glass",
-    "Plastic", "Metal", "Hazardous", "Mixed Waste"
+    "Recyclable", "Organic", "Glass",
+    "Metal", "Hazardous", "Mixed Waste"
 )
 
 private val DAYS_OF_WEEK = listOf(

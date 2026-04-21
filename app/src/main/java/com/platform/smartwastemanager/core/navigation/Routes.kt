@@ -30,6 +30,7 @@ object Routes {
     const val REPORT          = "report"
     const val SCAN            = "report/scan"
     const val REPORT_FORM     = "report/form"
+    const val REPORT_HISTORY  = "report/history"
     const val LOCATION_PICKER = "report/location-picker"
 
     // Map

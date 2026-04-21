@@ -163,7 +163,10 @@ fun LocationPickerMapScreen(
                 modifier            = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 properties          = MapProperties(
-                    isMyLocationEnabled = locationPermissions.allPermissionsGranted
+                    isMyLocationEnabled = locationPermissions.allPermissionsGranted,
+                    mapType             = com.google.android.gms.maps.GoogleMap.MAP_TYPE_NORMAL,
+                    isBuildingsEnabled  = true,
+                    isTrafficEnabled    = false
                 ),
                 uiSettings = MapUiSettings(
                     myLocationButtonEnabled = false,    // we have our own GPS FAB

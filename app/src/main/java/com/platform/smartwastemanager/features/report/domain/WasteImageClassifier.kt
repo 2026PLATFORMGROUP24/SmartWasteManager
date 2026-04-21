@@ -246,7 +246,7 @@ class WasteImageClassifier(private val context: Context) {
     }
 
     /**
-     * Maps a single ImageNet label string to one of the 8 app WasteCategories.
+     * Maps a single ImageNet label string to one of the app WasteCategories.
      * Uses substring matching — more specific checks come before broader ones.
      */
     private fun labelToCategory(label: String): WasteCategory {
@@ -294,7 +294,7 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("hen-of-the-woods")
                 -> WasteCategory.ORGANIC
 
-            // ---- Paper ----
+            // ---- Recyclable (paper) ----
             l.contains("envelope") || l.contains("paper towel") ||
                     l.contains("newspaper") || l.contains("book jacket") ||
                     l.contains("menu") || l.contains("packet") ||
@@ -302,7 +302,7 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("pencil box") || l.contains("comic book") ||
                     l.contains("book") || l.contains("cardboard") ||
                     l.contains("toilet tissue") || l.contains("toilet paper")
-                -> WasteCategory.PAPER
+                -> WasteCategory.RECYCLABLE
 
             // ---- Glass — check BEFORE generic "bottle" to avoid plastic winning ----
             l.contains("beer glass") || l.contains("wine glass") ||
@@ -336,7 +336,7 @@ class WasteImageClassifier(private val context: Context) {
                     (l.contains("pot") && !l.contains("flowerpot") && !l.contains("pottery"))
                 -> WasteCategory.METAL
 
-            // ---- Plastic ----
+            // ---- Recyclable (plastic) ----
             l.contains("water bottle") || l.contains("pop bottle") ||
                     l.contains("plastic bag") || l.contains("shopping basket") ||
                     l.contains("bottlecap") || l.contains("jug") ||
@@ -347,7 +347,7 @@ class WasteImageClassifier(private val context: Context) {
                     l.contains("plastic") || l.contains("container ship") ||
                     // generic bottle — after glass checks so glass bottles go to GLASS
                     l.contains("bottle")
-                -> WasteCategory.PLASTIC
+                -> WasteCategory.RECYCLABLE
 
             // ---- Recyclable (general) ----
             l.contains("recycle") || l.contains("recyclable")

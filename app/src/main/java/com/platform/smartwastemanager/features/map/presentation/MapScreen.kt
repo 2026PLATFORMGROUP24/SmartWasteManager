@@ -59,6 +59,7 @@ fun MapScreen(
     val isDismissMode by viewModel.isDismissMode.collectAsStateWithLifecycle()
     val pinToConfirm  by viewModel.pinToConfirmDismiss.collectAsStateWithLifecycle()
     val driverZones   by viewModel.driverZones.collectAsStateWithLifecycle()
+    val centerTarget  by viewModel.centerTarget.collectAsStateWithLifecycle()
 
     val context           = LocalContext.current
     val scope             = rememberCoroutineScope()
@@ -120,6 +121,16 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(centerTarget?.requestId) {
+        val target = centerTarget ?: return@LaunchedEffect
+        cameraPositionState.animate(
+            CameraUpdateFactory.newLatLngZoom(
+                LatLng(target.latitude, target.longitude), 16f
+            )
+        )
+        viewModel.clearCenterTarget()
+    }
+
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
     // ---- Dismiss confirmation dialog ----
@@ -170,11 +181,17 @@ fun MapScreen(
                 modifier            = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 properties          = MapProperties(
-                    isMyLocationEnabled = locationPermissions.allPermissionsGranted
+                    isMyLocationEnabled = locationPermissions.allPermissionsGranted,
+                    mapType             = com.google.android.gms.maps.GoogleMap.MAP_TYPE_NORMAL,
+                    isBuildingsEnabled  = true,
+                    isTrafficEnabled    = false
                 ),
                 uiSettings = MapUiSettings(
                     myLocationButtonEnabled = false,
-                    zoomControlsEnabled     = true
+                    zoomControlsEnabled     = true,
+                    mapToolbarEnabled       = false,
+                    scrollGesturesEnabled   = true,
+                    zoomGesturesEnabled     = true
                 ),
                 onMapLoaded = { isMapLoaded = true }
             ) {

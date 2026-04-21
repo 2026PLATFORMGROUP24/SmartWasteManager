@@ -34,6 +34,7 @@ import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
+import com.platform.smartwastemanager.features.report.presentation.ReportHistoryViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
@@ -87,6 +88,9 @@ fun SmartWasteManagerAppContent() {
             app.container.reportRepository,
             app.container.wasteImageClassifier
         )
+    )
+    val reportHistoryViewModel: ReportHistoryViewModel = viewModel(
+        factory = ReportHistoryViewModel.factory(app.container.reportRepository)
     )
     val mapViewModel: MapViewModel = viewModel(
         factory = MapViewModel.factory(app.container.mapRepository)
@@ -168,6 +172,7 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.HOME             -> "Home"
         currentDestination?.route == Routes.MANAGE_SCHEDULES -> "Manage Schedules"
         currentDestination?.route == Routes.REPORT           -> "Report Waste"
+        currentDestination?.route == Routes.REPORT_HISTORY   -> "My Reports"
         currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
         currentDestination?.route == Routes.MAP              -> "Map"
         currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
@@ -333,6 +338,7 @@ fun SmartWasteManagerAppContent() {
             authViewModel             = authViewModel,
             homeViewModel             = homeViewModel,
             reportViewModel           = reportViewModel,
+            reportHistoryViewModel    = reportHistoryViewModel,
             mapViewModel              = mapViewModel,
             routeViewModel            = routeViewModel,
             guideViewModel            = guideViewModel,

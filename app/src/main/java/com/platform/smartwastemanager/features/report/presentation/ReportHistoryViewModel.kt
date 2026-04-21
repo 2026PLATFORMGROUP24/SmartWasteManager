@@ -1,0 +1,73 @@
+package com.platform.smartwastemanager.features.report.presentation
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.platform.smartwastemanager.features.report.data.ReportRepository
+import com.platform.smartwastemanager.features.report.domain.WasteReport
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+sealed class ReportHistoryUiState {
+    object Loading : ReportHistoryUiState()
+    data class Success(val reports: List<WasteReport>) : ReportHistoryUiState()
+    data class Error(val message: String) : ReportHistoryUiState()
+}
+
+class ReportHistoryViewModel(
+    private val reportRepository: ReportRepository
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow<ReportHistoryUiState>(ReportHistoryUiState.Loading)
+    val uiState: StateFlow<ReportHistoryUiState> = _uiState.asStateFlow()
+
+    private var currentUserUid: String = ""
+    private var reportsJob: Job? = null
+
+    fun loadReports(userUid: String, forceRefresh: Boolean = false) {
+        if (userUid.isBlank()) {
+            currentUserUid = ""
+            reportsJob?.cancel()
+            _uiState.value = ReportHistoryUiState.Success(emptyList())
+            return
+        }
+        if (!forceRefresh && currentUserUid == userUid && reportsJob != null) return
+
+        currentUserUid = userUid
+        reportsJob?.cancel()
+        reportsJob = viewModelScope.launch {
+            _uiState.value = ReportHistoryUiState.Loading
+            reportRepository.getUserReports(userUid).collect { reports ->
+                _uiState.value = ReportHistoryUiState.Success(reports)
+            }
+        }
+    }
+
+    fun refresh() {
+        loadReports(currentUserUid, forceRefresh = true)
+    }
+
+    fun deleteReport(reportId: String) {
+        if (reportId.isBlank()) return
+        viewModelScope.launch {
+            val result = reportRepository.dismissReport(reportId)
+            if (result.isFailure) {
+                _uiState.value = ReportHistoryUiState.Error(
+                    result.exceptionOrNull()?.message ?: "Failed to delete report"
+                )
+            }
+        }
+    }
+
+    companion object {
+        fun factory(reportRepository: ReportRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    ReportHistoryViewModel(reportRepository) as T
+            }
+    }
+}

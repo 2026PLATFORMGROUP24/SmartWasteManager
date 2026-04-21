@@ -1,7 +1,7 @@
 package com.platform.smartwastemanager.features.report.domain
 
 /**
- * All 8 waste categories used in the app.
+ * Waste categories used in the app.
  *
  * These match the Firestore schema and the schedule management checkboxes.
  * The TFLite classifier maps ImageNet labels into these categories.
@@ -9,9 +9,7 @@ package com.platform.smartwastemanager.features.report.domain
 enum class WasteCategory(val displayName: String) {
     RECYCLABLE("Recyclable"),
     ORGANIC("Organic"),
-    PAPER("Paper"),
     GLASS("Glass"),
-    PLASTIC("Plastic"),
     METAL("Metal"),
     HAZARDOUS("Hazardous"),
     MIXED_WASTE("Mixed Waste");
@@ -19,6 +17,9 @@ enum class WasteCategory(val displayName: String) {
     companion object {
         /** Returns the enum from a display name string, or MIXED_WASTE as fallback. */
         fun fromDisplayName(name: String): WasteCategory {
+            if (name.equals("Paper", ignoreCase = true) || name.equals("Plastic", ignoreCase = true)) {
+                return RECYCLABLE
+            }
             return entries.firstOrNull {
                 it.displayName.equals(name, ignoreCase = true)
             } ?: MIXED_WASTE
