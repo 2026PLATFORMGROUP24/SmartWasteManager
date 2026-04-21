@@ -50,9 +50,6 @@ class ReportViewModel(
     private val reportRepository: ReportRepository,
     private val wasteImageClassifier: WasteImageClassifier
 ) : ViewModel() {
-    private companion object {
-        const val TAG = "ReportViewModel"
-    }
 
     // ---- UI state ----
     private val _uiState = MutableStateFlow<ReportUiState>(ReportUiState.Idle)
@@ -245,6 +242,8 @@ class ReportViewModel(
 
     // ---- Manual DI factory ----
     companion object {
+        private const val TAG = "ReportViewModel"
+
         fun factory(
             reportRepository: ReportRepository,
             wasteImageClassifier: WasteImageClassifier
