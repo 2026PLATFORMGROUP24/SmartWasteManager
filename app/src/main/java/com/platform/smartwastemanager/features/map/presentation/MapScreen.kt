@@ -37,6 +37,8 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+private const val MAP_LOAD_WAIT_DELAY_MS = 250L
+
 /**
  * Map screen — shows pending waste report pins and, for drivers in driver view,
  * also shows their zone circles as overlays.
@@ -243,7 +245,7 @@ fun MapScreen(
                                         if (result != null) {
                                             try {
                                                 if (!isMapLoaded) {
-                                                    delay(250)
+                                                    delay(MAP_LOAD_WAIT_DELAY_MS)
                                                 }
                                                 cameraPositionState.animate(
                                                     CameraUpdateFactory.newLatLngZoom(
