@@ -1,68 +1,42 @@
 package com.platform.smartwastemanager.features.report.presentation
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistScreen
-import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistViewModel
 import com.platform.smartwastemanager.features.report.domain.WasteCategory
 
 /**
- * Waste Report form screen with two tabs:
- *  - Waste Reporting: the existing report form (category, location, submit).
- *  - Ask AI: AI waste classification and recycling guide generation (free Gemini API).
+ * Waste report form screen.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun ReportFormScreen(
     viewModel: ReportViewModel,
-    aiAssistViewModel: AiAssistViewModel,
     currentUserUid: String,
     onNavigateBack: () -> Unit,
     onSubmitSuccess: () -> Unit,
-    onNavigateToLocationPicker: () -> Unit,
-    onNavigateToScan: () -> Unit
+    onNavigateToLocationPicker: () -> Unit
 ) {
     val context = LocalContext.current
 
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabTitles   = listOf("Waste Reporting", "Ask AI")
-
     val uiState          by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
-    val aiLabels         by viewModel.aiLabels.collectAsStateWithLifecycle()
-    val isLowConfidence  by viewModel.isLowConfidence.collectAsStateWithLifecycle()
     val streetName       by viewModel.streetName.collectAsStateWithLifecycle()
     val isLocating       by viewModel.isLocating.collectAsStateWithLifecycle()
     val isManualLocation by viewModel.isManualLocation.collectAsStateWithLifecycle()
-    val scannedBitmap    by viewModel.lastClassifiedBitmap.collectAsStateWithLifecycle()
-
-    LaunchedEffect(selectedTab, aiLabels) {
-        if (selectedTab == 1) {
-            aiAssistViewModel.setScannedBitmap(scannedBitmap)
-            if (aiLabels.isNotEmpty()) {
-                aiAssistViewModel.setInitialLabels(aiLabels)
-            }
-        }
-    }
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -107,8 +81,6 @@ fun ReportFormScreen(
         )
     }
 
-    var categoryDropdownExpanded by remember { mutableStateOf(false) }
-
     Column(modifier = Modifier.fillMaxSize()) {
 
         Row(
@@ -121,50 +93,24 @@ fun ReportFormScreen(
             Text("Submit Report", style = MaterialTheme.typography.titleLarge)
         }
 
-        TabRow(selectedTabIndex = selectedTab) {
-            tabTitles.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick  = { selectedTab = index },
-                    text     = { Text(title) },
-                    icon     = {
-                        if (index == 1) Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                )
-            }
-        }
+        var categoryDropdownExpanded by remember { mutableStateOf(false) }
 
-        when (selectedTab) {
-            0 -> WasteReportingTab(
-                uiState                  = uiState,
-                selectedCategory         = selectedCategory,
-                aiLabels                 = aiLabels,
-                isLowConfidence          = isLowConfidence,
-                streetName               = streetName,
-                isLocating               = isLocating,
-                isManualLocation         = isManualLocation,
-                categoryDropdownExpanded = categoryDropdownExpanded,
-                onCategoryExpand         = { categoryDropdownExpanded = it },
-                locationPermissionsGranted = locationPermissions.allPermissionsGranted,
-                onRequestLocationPermission = { locationPermissions.launchMultiplePermissionRequest() },
-                onCategorySelected       = { viewModel.setCategory(it) },
-                onStreetNameChange       = { viewModel.setStreetName(it) },
-                onNavigateToLocationPicker = onNavigateToLocationPicker,
-                onRefreshGps             = { viewModel.clearManualAndFetchGps(context) },
-                onSubmit                 = { viewModel.submitReport(currentUserUid) },
-                onScanAgain              = onNavigateBack
-            )
-            1 -> AiAssistScreen(
-                viewModel      = aiAssistViewModel,
-                currentUserUid = currentUserUid,
-                scannedBitmap  = scannedBitmap,
-                onRequestScan  = onNavigateToScan
-            )
-        }
+        WasteReportingTab(
+            uiState                  = uiState,
+            selectedCategory         = selectedCategory,
+            streetName               = streetName,
+            isLocating               = isLocating,
+            isManualLocation         = isManualLocation,
+            categoryDropdownExpanded = categoryDropdownExpanded,
+            onCategoryExpand         = { categoryDropdownExpanded = it },
+            locationPermissionsGranted = locationPermissions.allPermissionsGranted,
+            onRequestLocationPermission = { locationPermissions.launchMultiplePermissionRequest() },
+            onCategorySelected       = { viewModel.setCategory(it) },
+            onStreetNameChange       = { viewModel.setStreetName(it) },
+            onNavigateToLocationPicker = onNavigateToLocationPicker,
+            onRefreshGps             = { viewModel.clearManualAndFetchGps(context) },
+            onSubmit                 = { viewModel.submitReport(currentUserUid) }
+        )
     }
 }
 
@@ -177,8 +123,6 @@ fun ReportFormScreen(
 private fun WasteReportingTab(
     uiState: ReportUiState,
     selectedCategory: String,
-    aiLabels: List<Pair<String, Float>>,
-    isLowConfidence: Boolean,
     streetName: String,
     isLocating: Boolean,
     isManualLocation: Boolean,
@@ -190,8 +134,7 @@ private fun WasteReportingTab(
     onStreetNameChange: (String) -> Unit,
     onNavigateToLocationPicker: () -> Unit,
     onRefreshGps: () -> Unit,
-    onSubmit: () -> Unit,
-    onScanAgain: () -> Unit
+    onSubmit: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -200,96 +143,6 @@ private fun WasteReportingTab(
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // AI scan results card
-        AnimatedVisibility(visible = aiLabels.isNotEmpty()) {
-            Card(
-                colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("AI Scan Results", style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Detected as: ", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer)
-                        Surface(color = MaterialTheme.colorScheme.tertiary, shape = MaterialTheme.shapes.small) {
-                            Text(selectedCategory, style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text("Top objects seen by the model:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f))
-                    Spacer(Modifier.height(6.dp))
-                    aiLabels.forEach { (label, confidence) ->
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(label.take(36), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.weight(1f))
-                            Spacer(Modifier.width(8.dp))
-                            Text("${(confidence * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer)
-                        }
-                        LinearProgressIndicator(
-                            progress   = { confidence },
-                            modifier   = Modifier.fillMaxWidth().height(4.dp),
-                            color      = MaterialTheme.colorScheme.tertiary,
-                            trackColor = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.15f))
-                        Spacer(Modifier.height(2.dp))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("You can change the category below if the AI got it wrong.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f))
-                }
-            }
-        }
-
-        // Low confidence warning
-        AnimatedVisibility(visible = isLowConfidence && aiLabels.isNotEmpty()) {
-            Card(
-                colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Warning, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Low confidence scan", style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "The AI wasn't confident about this item. Try: closer framing, better lighting, plain surface. Or correct the category below.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer)
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onScanAgain) {
-                        Text("Scan Again", color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
         // Location permission banner
         if (!locationPermissionsGranted) {
             Card(

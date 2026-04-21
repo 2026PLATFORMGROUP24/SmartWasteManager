@@ -37,13 +37,10 @@ import com.platform.smartwastemanager.features.notifications.presentation.Notifi
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
 import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
-import com.platform.smartwastemanager.features.announcement.data.AnnouncementRepository
-import com.platform.smartwastemanager.features.aiassist.presentation.AiAssistViewModel
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 
 class MainActivity : ComponentActivity() {
@@ -118,10 +115,6 @@ fun SmartWasteManagerAppContent() {
             app.container.mapRepository
         )
     )
-    val aiAssistViewModel: AiAssistViewModel = viewModel(
-        factory = AiAssistViewModel.factory(app.container.aiAssistRepository)
-    )
-
     // =========================================================================
     // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
     // FIX 1: Ensure zones and schedules are reloaded after authentication.
@@ -175,7 +168,6 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route == Routes.HOME             -> "Home"
         currentDestination?.route == Routes.MANAGE_SCHEDULES -> "Manage Schedules"
         currentDestination?.route == Routes.REPORT           -> "Report Waste"
-        currentDestination?.route == Routes.SCAN             -> "Scan Waste"
         currentDestination?.route == Routes.REPORT_FORM      -> "Submit Report"
         currentDestination?.route == Routes.MAP              -> "Map"
         currentDestination?.route == Routes.GUIDES           -> "Recycling Guides"
@@ -191,7 +183,6 @@ fun SmartWasteManagerAppContent() {
         currentDestination?.route?.startsWith("home/zones/picker")    == true -> "Assign Zone"
         currentDestination?.route?.startsWith("home/zones/")          == true -> "Collection Zones"
         currentDestination?.route == Routes.NOTIFICATIONS    -> "Notification Centre"
-        currentDestination?.route == Routes.AI_HISTORY       -> "Ask AI History"
         else                                                  -> "Smart Waste Manager"
     }
 
@@ -238,19 +229,6 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // AI History button — visible to all authenticated users
-                            if (currentUser != null) {
-                                IconButton(onClick = {
-                                    navController.navigate(Routes.AI_HISTORY) {
-                                        launchSingleTop = true
-                                    }
-                                }) {
-                                    Icon(
-                                        imageVector        = Icons.Default.History,
-                                        contentDescription = "Ask AI History"
-                                    )
-                                }
-                            }
                             // Notification bell — visible ONLY to drivers in Driver View
                             if (isDriver && isDriverViewActive) {
                                 IconButton(onClick = {
@@ -361,7 +339,6 @@ fun SmartWasteManagerAppContent() {
             notificationViewModel     = notificationViewModel,
             announcementViewModel     = announcementViewModel,
             collectionPointViewModel  = collectionPointViewModel,
-            aiAssistViewModel         = aiAssistViewModel,
             modifier                  = Modifier.padding(innerPadding)
         )
     }
