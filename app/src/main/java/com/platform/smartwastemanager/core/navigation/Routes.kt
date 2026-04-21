@@ -28,6 +28,7 @@ object Routes {
 
     // Report
     const val REPORT          = "report"
+    const val SCAN            = "report/scan"
     const val REPORT_FORM     = "report/form"
     const val LOCATION_PICKER = "report/location-picker"
 
