@@ -48,12 +48,32 @@ android {
     // which only works if it is NOT compressed in the APK.
     aaptOptions {
         noCompress += "tflite"
+        noCompress += "gguf"
+        noCompress += "bin"
+    }
+
+    packaging {
+        resources {
+            excludes += "META-INF/DEPENDENCIES"
+            pickFirsts += "lib/x86/libopencv_java4.so"
+            pickFirsts += "lib/x86_64/libopencv_java4.so"
+            pickFirsts += "lib/armeabi-v7a/libopencv_java4.so"
+            pickFirsts += "lib/arm64-v8a/libopencv_java4.so"
+        }
+        jniLibs {
+            pickFirsts += "lib/x86/libopencv_java4.so"
+            pickFirsts += "lib/x86_64/libopencv_java4.so"
+            pickFirsts += "lib/armeabi-v7a/libopencv_java4.so"
+            pickFirsts += "lib/arm64-v8a/libopencv_java4.so"
+        }
     }
 }
 
 dependencies {
     // ---- AndroidX Core ----
     implementation(libs.androidx.core.ktx)
+    // AppCompat — required by compose-markdown's Markwon-based CustomTextView
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
@@ -114,8 +134,11 @@ dependencies {
     // ---- Markdown Renderer ----
     implementation(libs.compose.markdown)
 
-    // ---- Google Generative AI (Gemini) ----
-    implementation(libs.google.generativeai)
+    // ---- MediaPipe Tasks GenAI (task-bundle format only; GGUF is not supported) ----
+    // implementation(libs.mediapipe.tasks.genai)
+
+    // ---- Firebase Vertex AI — Gemini streaming (replaces on-device GGUF inference) ----
+    implementation(libs.firebase.vertexai)
 
     // ---- Testing ----
     testImplementation(libs.junit)

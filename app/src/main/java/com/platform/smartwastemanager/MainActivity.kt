@@ -118,7 +118,8 @@ fun SmartWasteManagerAppContent() {
     )
     val askAiViewModel: AskAiViewModel = viewModel(
         factory = AskAiViewModel.factory(
-            app.container.aiRepository,
+            app,
+            app.container.aiChatRepository,
             app.container.wasteImageClassifier
         )
     )

@@ -355,6 +355,7 @@ fun AppNavHost(
         composable(Routes.ASK_AI) {
             AskAiScreen(
                 viewModel = askAiViewModel,
+                currentUserId = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() }
             )
         }

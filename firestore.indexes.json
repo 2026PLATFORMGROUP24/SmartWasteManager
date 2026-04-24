@@ -31,6 +31,14 @@
         { "fieldPath": "zoneId",               "order": "ASCENDING" },
         { "fieldPath": "markedForCollectionDays", "arrayConfig": "CONTAINS" }
       ]
+    },
+    {
+      "collectionGroup": "ai_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

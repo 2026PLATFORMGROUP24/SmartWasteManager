@@ -34,8 +34,15 @@ object Constants {
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
     )
 
-    // ---- AI Settings ----
-    // TODO: Replace with your actual Gemini API Key from Google AI Studio
-    const val GEMINI_API_KEY = "AIzaSyBCFGHdMaB56M4-7CPAs0bLQtBpsfcD_9g"
-    const val GEMINI_MODEL_NAME = "gemini-2.5-flash"
+    // ---- AI Model (SmoLLM2 on-device) ----
+    /** Firebase Storage path where the GGUF model is hosted.
+     *  NOTE: MediaPipe LlmInference only supports Q4_0, Q4_K_M, and Q6_K quantizations.
+     *  Q8_0 is NOT supported and causes a native SIGSEGV crash. */
+    const val AI_MODEL_STORAGE_PATH = "ai_models/smollm2-360m-instruct-q4_k_m.gguf"
+    /** Local file name written to filesDir/models/ after download. */
+    const val AI_MODEL_FILE_NAME    = "smollm2-360m-q4km.gguf"
+    /** Minimum file size (bytes) to consider a local model valid (~200 MB for Q4_K_M). */
+    const val AI_MODEL_MIN_SIZE_BYTES = 150_000_000L
+    /** Legacy file names that should be deleted if found (old/incompatible downloads). */
+    val AI_MODEL_LEGACY_FILE_NAMES = listOf("smollm2-360m.gguf")
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
@@ -114,7 +115,7 @@ fun ReportScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Text(
-                text = "Your currently active / pending reports",
+                text = "Pending reports only · Dismiss to remove from collection queue",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth()
@@ -125,7 +126,7 @@ fun ReportScreen(
         if (userReports.isEmpty()) {
             item {
                 Text(
-                    text = "No active reports at the moment.",
+                    text = "No pending reports at the moment.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()
@@ -133,70 +134,105 @@ fun ReportScreen(
             }
         } else {
             items(userReports, key = { it.id }) { report ->
-                ReportHistoryCard(report = report)
+                ReportHistoryCard(
+                    report = report,
+                    onDismiss = { viewModel.dismissReport(report.id) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ReportHistoryCard(report: com.platform.smartwastemanager.features.report.domain.WasteReport) {
+private fun ReportHistoryCard(
+    report: com.platform.smartwastemanager.features.report.domain.WasteReport,
+    onDismiss: () -> Unit
+) {
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
-    val statusColor = when (report.status.lowercase()) {
-        "pending" -> MaterialTheme.colorScheme.tertiary
-        else      -> MaterialTheme.colorScheme.primary
-    }
+    var showConfirm by remember { mutableStateOf(false) }
 
     Card(
-        modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier          = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text       = report.category,
-                    style      = MaterialTheme.typography.titleSmall,
+                    text = report.category,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color      = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector        = Icons.Default.LocationOn,
+                        imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
-                        tint               = MaterialTheme.colorScheme.primary,
-                        modifier           = Modifier.size(14.dp)
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(2.dp))
                     Text(
-                        text  = report.streetName.ifBlank { "Location not set" },
+                        text = report.streetName.ifBlank { "Location not set" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text  = dateFormatter.format(report.timestamp.toDate()),
+                    text = dateFormatter.format(report.timestamp.toDate()),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
+
+            // Status badge
             Surface(
-                color = statusColor.copy(alpha = 0.15f),
+                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(
-                    text     = report.status.replaceFirstChar { it.uppercase() },
-                    style    = MaterialTheme.typography.labelSmall,
+                    text = "Pending",
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color    = statusColor,
+                    color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Dismiss button
+            IconButton(onClick = { showConfirm = true }) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Dismiss report",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
         }
+    }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("Dismiss Report?") },
+            text = { Text("This will remove the report from the collection queue. The report will no longer be visible to collection drivers.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDismiss()
+                    showConfirm = false
+                }) {
+                    Text("Dismiss", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 }

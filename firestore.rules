@@ -17,18 +17,25 @@ service cloud.firestore {
     }
 
     // ── Waste Reports ─────────────────────────────────────────────────────────
-    // Users can create reports and read/delete their own.
-    // Drivers can read and delete all pending reports.
     match /waste_reports/{reportId} {
       allow create: if isSignedIn()
                     && request.resource.data.reportedBy == request.auth.uid;
 
-      // Owner can read/delete their own report
-      allow read, delete: if isSignedIn()
+      // Owner can read, update (dismiss = set status), or delete their own report
+      allow read, update, delete: if isSignedIn()
                           && resource.data.reportedBy == request.auth.uid;
 
       // Drivers can read and delete any report
       allow read, delete: if isDriver();
+    }
+
+    // ── AI Chats ──────────────────────────────────────────────────────────────
+    // Each user can create and manage only their own AI chat sessions.
+    match /ai_chats/{chatId} {
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isSignedIn()
+                    && resource.data.userId == request.auth.uid;
     }
 
     // ── Collection Points ─────────────────────────────────────────────────────
@@ -65,4 +72,3 @@ service cloud.firestore {
     }
   }
 }
-

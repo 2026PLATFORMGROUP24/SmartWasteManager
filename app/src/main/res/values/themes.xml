@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.SmartWasteManager" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Must extend a Theme.MaterialComponents (AppCompat-based) rather than
+        android:Theme.Material, because compose-markdown's CustomTextView (via Markwon)
+        is an AppCompat widget and throws ThemeUtils errors with a plain Material theme.
+    -->
+    <style name="Theme.SmartWasteManager" parent="Theme.AppCompat.Light.NoActionBar" />
 </resources>

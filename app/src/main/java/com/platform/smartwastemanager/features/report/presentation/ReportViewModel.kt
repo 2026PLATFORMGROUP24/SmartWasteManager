@@ -72,6 +72,13 @@ class ReportViewModel(
         }
     }
 
+    fun dismissReport(reportId: String) {
+        viewModelScope.launch {
+            reportRepository.dismissReport(reportId)
+            // The Firestore listener will automatically remove the report from _userReports
+        }
+    }
+
     // ---- Form fields ----
 
     private val _selectedCategory = MutableStateFlow(WasteCategory.MIXED_WASTE.displayName)

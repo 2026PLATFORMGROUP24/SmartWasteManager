@@ -104,7 +104,8 @@ class ReportRepository {
      */
     fun getReportsForUser(userId: String): Flow<List<WasteReport>> = callbackFlow {
         val listener = collection
-            .whereEqualTo("reportedBy", userId)   // single-field filter — no composite index needed
+            .whereEqualTo("reportedBy", userId)
+            .whereEqualTo("status", "pending")   // show only pending — dismissed are hidden
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     android.util.Log.e("ReportRepository", "getReportsForUser error: ${error.message}", error)
@@ -138,13 +139,13 @@ class ReportRepository {
     }
 
     /**
-     * Permanently deletes a report from Firestore.
-     * Called by drivers to remove a pin from the map and route results.
+     * Soft-deletes a report by setting its status to "dismissed".
+     * Dismissed reports are hidden from the user's history and from driver collection views.
      */
     suspend fun dismissReport(reportId: String): Result<Unit> {
         return try {
             collection.document(reportId)
-                .delete()
+                .update("status", "dismissed")
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {
