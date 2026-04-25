@@ -21,12 +21,16 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,16 +38,24 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -59,6 +71,7 @@ import dev.jeziellago.compose.markdowntext.MarkdownText
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
+import kotlin.math.min
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class,
     ExperimentalLayoutApi::class)
@@ -113,8 +126,13 @@ fun AskAiScreen(
         when (uiState.screenMode) {
             AskAiScreenMode.HISTORY_CHAT -> viewModel.backFromHistoryChat()
             AskAiScreenMode.HISTORY_LIST -> viewModel.backFromHistoryList()
-            AskAiScreenMode.CAMERA       -> viewModel.reset() // back to landing
-            AskAiScreenMode.CHAT         -> viewModel.reset() // back to landing
+            AskAiScreenMode.CAMERA       -> viewModel.reset()
+            AskAiScreenMode.CROP         -> viewModel.reset() // back to camera/landing
+            AskAiScreenMode.REVIEW       -> {
+                // Go back to crop so user can re-crop
+                viewModel.backToCrop()
+            }
+            AskAiScreenMode.CHAT         -> viewModel.reset()
             AskAiScreenMode.LANDING      -> onNavigateBack()
         }
     }
@@ -126,6 +144,8 @@ fun AskAiScreen(
                     Text(when (uiState.screenMode) {
                         AskAiScreenMode.LANDING      -> "Ask AI Assistant"
                         AskAiScreenMode.CAMERA       -> "Scan Item"
+                        AskAiScreenMode.CROP         -> "Crop Image"
+                        AskAiScreenMode.REVIEW       -> "Confirm Item"
                         AskAiScreenMode.CHAT         -> "AI Chat"
                         AskAiScreenMode.HISTORY_LIST -> "Chat History"
                         AskAiScreenMode.HISTORY_CHAT -> uiState.selectedHistoryChat?.wasteLabel ?: "Chat"
@@ -181,6 +201,24 @@ fun AskAiScreen(
                         )
                     },
                     onGallery = { galleryLauncher.launch("image/*") }
+                )
+
+                // ── Crop ─────────────────────────────────────────────────────
+                AskAiScreenMode.CROP -> {
+                    val raw = uiState.capturedImage
+                    if (raw != null) {
+                        CropStage(
+                            bitmap = raw,
+                            onCropConfirmed = { cropped -> viewModel.onImageCropped(cropped) }
+                        )
+                    }
+                }
+
+                // ── Review ───────────────────────────────────────────────────
+                AskAiScreenMode.REVIEW -> ReviewStage(
+                    uiState = uiState,
+                    onLabelChanged = { viewModel.onLabelChanged(it) },
+                    onConfirm = { viewModel.onLabelConfirmed() }
                 )
 
                 // ── Chat ─────────────────────────────────────────────────────
@@ -611,6 +649,362 @@ private fun CameraStage(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Crop Stage — touch-based crop rectangle
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Displays the raw captured image with a draggable crop rectangle.
+ * Each corner handle is individually draggable. Pressing "Crop" applies the
+ * selection and passes the cropped [Bitmap] to [onCropConfirmed].
+ */
+@Composable
+private fun CropStage(
+    bitmap: Bitmap,
+    onCropConfirmed: (Bitmap) -> Unit
+) {
+    // Size of the canvas once laid out
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // Crop handles — each stored as a fraction [0,1] of canvas width/height
+    // so they survive recomposition across size changes.
+    // Default: 10 % inset on every side.
+    var tl by remember { mutableStateOf(Offset(0.1f, 0.1f)) }
+    var br by remember { mutableStateOf(Offset(0.9f, 0.9f)) }
+
+    val handleRadius = 24.dp
+    val strokeColor  = Color.White
+    val overlayColor = Color.Black.copy(alpha = 0.55f)
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            "Drag the corners to frame the waste item, then tap Crop.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { canvasSize = it }
+        ) {
+            // Draw the bitmap
+            if (canvasSize != IntSize.Zero) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Captured image",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // Overlay + crop handles
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(canvasSize) {
+                        val w = canvasSize.width.toFloat()
+                        val h = canvasSize.height.toFloat()
+                        if (w == 0f || h == 0f) return@pointerInput
+                        val rPx = handleRadius.toPx()
+
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val pos = change.position
+                            // Determine which handle is being dragged by proximity to finger
+                            val tlPx = Offset(tl.x * w, tl.y * h)
+                            val brPx = Offset(br.x * w, br.y * h)
+                            val trPx = Offset(br.x * w, tl.y * h)
+                            val blPx = Offset(tl.x * w, br.y * h)
+
+                            fun Offset.dst(o: Offset) = (x - o.x) * (x - o.x) + (y - o.y) * (y - o.y)
+                            val rSq = rPx * rPx * 4
+
+                            when {
+                                pos.dst(tlPx) < rSq -> tl = Offset(
+                                    ((tl.x * w + dragAmount.x) / w).coerceIn(0f, br.x - 0.05f),
+                                    ((tl.y * h + dragAmount.y) / h).coerceIn(0f, br.y - 0.05f)
+                                )
+                                pos.dst(brPx) < rSq -> br = Offset(
+                                    ((br.x * w + dragAmount.x) / w).coerceIn(tl.x + 0.05f, 1f),
+                                    ((br.y * h + dragAmount.y) / h).coerceIn(tl.y + 0.05f, 1f)
+                                )
+                                pos.dst(trPx) < rSq -> {
+                                    br = br.copy(x = ((br.x * w + dragAmount.x) / w).coerceIn(tl.x + 0.05f, 1f))
+                                    tl = tl.copy(y = ((tl.y * h + dragAmount.y) / h).coerceIn(0f, br.y - 0.05f))
+                                }
+                                pos.dst(blPx) < rSq -> {
+                                    tl = tl.copy(x = ((tl.x * w + dragAmount.x) / w).coerceIn(0f, br.x - 0.05f))
+                                    br = br.copy(y = ((br.y * h + dragAmount.y) / h).coerceIn(tl.y + 0.05f, 1f))
+                                }
+                            }
+                        }
+                    }
+            ) {
+                val w = size.width
+                val h = size.height
+                val left   = tl.x * w
+                val top    = tl.y * h
+                val right  = br.x * w
+                val bottom = br.y * h
+                // Dark overlay outside crop rect (4 rectangles)
+                drawRect(overlayColor, size = Size(w, top))
+                drawRect(overlayColor, topLeft = Offset(0f, bottom), size = Size(w, h - bottom))
+                drawRect(overlayColor, topLeft = Offset(0f, top), size = Size(left, bottom - top))
+                drawRect(overlayColor, topLeft = Offset(right, top), size = Size(w - right, bottom - top))
+
+                // Crop rect border
+                drawRect(strokeColor, topLeft = Offset(left, top), size = Size(right - left, bottom - top), style = Stroke(width = 3f))
+
+                // Rule-of-thirds grid lines
+                val thirdW = (right - left) / 3f
+                val thirdH = (bottom - top) / 3f
+                for (i in 1..2) {
+                    drawLine(strokeColor.copy(alpha = 0.4f), Offset(left + i * thirdW, top), Offset(left + i * thirdW, bottom), strokeWidth = 1f)
+                    drawLine(strokeColor.copy(alpha = 0.4f), Offset(left, top + i * thirdH), Offset(right, top + i * thirdH), strokeWidth = 1f)
+                }
+
+                // Corner handles
+                listOf(
+                    Offset(left, top), Offset(right, top),
+                    Offset(left, bottom), Offset(right, bottom)
+                ).forEach { handle ->
+                    drawCircle(strokeColor, radius = 12f, center = handle)
+                    drawCircle(Color(0xFF2196F3), radius = 8f, center = handle)
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                if (canvasSize == IntSize.Zero) return@Button
+                val w = canvasSize.width.toFloat()
+                val h = canvasSize.height.toFloat()
+
+                // The image is rendered Fit inside the canvas; compute the actual
+                // image rect within the canvas so we can map crop coords to pixels.
+                val bmpW = bitmap.width.toFloat()
+                val bmpH = bitmap.height.toFloat()
+                val scale = min(w / bmpW, h / bmpH)
+                val renderedW = bmpW * scale
+                val renderedH = bmpH * scale
+                val offsetX = (w - renderedW) / 2f
+                val offsetY = (h - renderedH) / 2f
+
+                // Convert canvas fraction coords → bitmap pixel coords
+                val l = ((tl.x * w - offsetX) / scale).toInt().coerceIn(0, bitmap.width - 1)
+                val t = ((tl.y * h - offsetY) / scale).toInt().coerceIn(0, bitmap.height - 1)
+                val r = ((br.x * w - offsetX) / scale).toInt().coerceIn(l + 1, bitmap.width)
+                val b = ((br.y * h - offsetY) / scale).toInt().coerceIn(t + 1, bitmap.height)
+
+                val cropped = Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
+                onCropConfirmed(cropped)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Crop & Analyse")
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review Stage — shows ML results + editable label
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ReviewStage(
+    uiState: AskAiUiState,
+    onLabelChanged: (String) -> Unit,
+    onConfirm: () -> Unit
+) {
+    val croppedOrRaw = uiState.croppedImage ?: uiState.capturedImage
+
+    // Local draft — starts empty, filled once classification finishes.
+    // We deliberately do NOT re-sync after the user edits, so typing is stable.
+    var labelDraft by remember { mutableStateOf("") }
+    var userHasEdited by remember { mutableStateOf(false) }
+
+    // One-shot: when classification completes and produces a label, fill the draft
+    // (only if the user hasn't already typed something themselves).
+    LaunchedEffect(uiState.identifiedLabel) {
+        if (uiState.identifiedLabel.isNotBlank() && !userHasEdited) {
+            labelDraft = uiState.identifiedLabel
+        }
+    }
+
+        val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // ── Cropped image preview ────────────────────────────────────────────
+        if (croppedOrRaw != null) {
+            androidx.compose.foundation.Image(
+                bitmap = croppedOrRaw.asImageBitmap(),
+                contentDescription = "Cropped waste item",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Classification results card ──────────────────────────────────────
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.AutoAwesome, null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "AI Image Classification",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "MobileNet analysed the cropped image and detected the following:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (uiState.isClassifying) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Analysing image…", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else if (uiState.classificationResults.isEmpty()) {
+                    Text(
+                        "No results detected — please type the item name below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                } else {
+                    uiState.classificationResults.take(5).forEachIndexed { idx, (label, confidence) ->
+                        val isTop = idx == 0
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    labelDraft = label
+                                    userHasEdited = true
+                                    onLabelChanged(label)
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = if (isTop) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        "${idx + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isTop) MaterialTheme.colorScheme.onPrimary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = if (isTop) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "${(confidence * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tap a result to use it as the item label.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Editable label field ─────────────────────────────────────────────
+        OutlinedTextField(
+            value = labelDraft,
+            onValueChange = { newText ->
+                labelDraft = newText
+                userHasEdited = true
+                onLabelChanged(newText)
+            },
+            label = { Text("Waste Item Name") },
+            placeholder = { Text("e.g. Plastic Bottle") },
+            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            supportingText = {
+                Text("Edit the label if needed — the AI assistant uses this to guide its response.")
+            }
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ── Confirm button ───────────────────────────────────────────────────
+        Button(
+            onClick = {
+                // Ensure ViewModel has the latest draft before confirming
+                if (labelDraft.isNotBlank()) onLabelChanged(labelDraft)
+                onConfirm()
+            },
+            enabled = !uiState.isClassifying && labelDraft.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Confirm & Start AI Chat")
+        }
+
+        // Extra bottom padding so the button clears the nav bar
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat Stage
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChatStage(

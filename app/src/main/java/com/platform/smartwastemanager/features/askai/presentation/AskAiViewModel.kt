@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 enum class AskAiScreenMode {
     LANDING,
     CAMERA,
+    CROP,    // user crops the captured image
+    REVIEW,  // shows ML classification results + editable label before chat
     CHAT,
     HISTORY_LIST,
     HISTORY_CHAT
@@ -33,7 +35,11 @@ enum class AskAiScreenMode {
 data class AskAiUiState(
     // ── Image / classification ──────────────────────────────────────────────
     val capturedImage: Bitmap? = null,
+    /** The bitmap after user crops — used for ML + uploaded to Firestore. */
+    val croppedImage: Bitmap? = null,
     val identifiedLabel: String = "",
+    /** All top labels returned by MobileNet, shown on the Review screen. */
+    val classificationResults: List<Pair<String, Float>> = emptyList(),
     val isClassifying: Boolean = false,
 
     // ── AI response ─────────────────────────────────────────────────────────
@@ -223,40 +229,67 @@ class AskAiViewModel(
     // Image capture & classification
     // ──────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Called when the camera captures / gallery picks an image.
+     * Goes to CROP mode so the user can refine the region before classification.
+     */
     fun onImageCaptured(bitmap: Bitmap) {
-        // Reset the user-edit guard whenever a brand-new image is captured
         hasUserEditedLabel = false
         _uiState.value = _uiState.value.copy(
             capturedImage = bitmap,
-            isClassifying = true,
+            croppedImage = null,
+            identifiedLabel = "",
+            classificationResults = emptyList(),
+            isClassifying = false,
             error = null,
             latestAiResponse = "",
             streamingResponse = "",
-            screenMode = AskAiScreenMode.CHAT
+            screenMode = AskAiScreenMode.CROP
+        )
+    }
+
+    /**
+     * Called when the user confirms the crop rectangle.
+     * Runs ML classification on the cropped bitmap, then goes to REVIEW mode.
+     */
+    fun onImageCropped(cropped: Bitmap) {
+        hasUserEditedLabel = false
+        _uiState.value = _uiState.value.copy(
+            croppedImage = cropped,
+            isClassifying = true,
+            error = null,
+            screenMode = AskAiScreenMode.REVIEW
         )
         viewModelScope.launch {
             try {
-                val result = classifier.classify(bitmap)
+                val result = classifier.classify(cropped)
                 val topLabel = result.topLabels.firstOrNull()?.first ?: "Unknown Item"
-                // Only apply the ML result if the user hasn't already corrected the label
-                if (!hasUserEditedLabel) {
-                    _uiState.value = _uiState.value.copy(
-                        identifiedLabel = topLabel,
-                        isClassifying = false
-                    )
-                } else {
-                    // Classification finished but user already edited — just clear the spinner
-                    _uiState.value = _uiState.value.copy(isClassifying = false)
-                }
-                createChatSession(bitmap, topLabel)
+                _uiState.value = _uiState.value.copy(
+                    identifiedLabel = topLabel,
+                    classificationResults = result.topLabels,
+                    isClassifying = false
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    identifiedLabel = if (!hasUserEditedLabel) "Classification Failed"
-                                      else _uiState.value.identifiedLabel,
+                    identifiedLabel = "Unknown Item",
+                    classificationResults = emptyList(),
                     isClassifying = false,
                     error = "Classification failed: ${e.message}"
                 )
             }
+        }
+    }
+
+    /**
+     * Called when the user presses Confirm on the Review screen.
+     * Creates the Firestore chat session and goes to CHAT mode.
+     */
+    fun onLabelConfirmed() {
+        val bitmap = _uiState.value.croppedImage ?: _uiState.value.capturedImage ?: return
+        val label = _uiState.value.identifiedLabel.ifBlank { "Unknown Item" }
+        _uiState.value = _uiState.value.copy(screenMode = AskAiScreenMode.CHAT)
+        viewModelScope.launch {
+            createChatSession(bitmap, label)
         }
     }
 
@@ -393,6 +426,17 @@ class AskAiViewModel(
         _uiState.value = _uiState.value.copy(screenMode = AskAiScreenMode.CAMERA)
     }
 
+    /** Back from Review → return to Crop so the user can adjust the crop region. */
+    fun backToCrop() {
+        _uiState.value = _uiState.value.copy(
+            screenMode = AskAiScreenMode.CROP,
+            croppedImage = null,
+            identifiedLabel = "",
+            classificationResults = emptyList(),
+            isClassifying = false
+        )
+    }
+
     fun openHistoryChat(chat: AiChat) {
         _uiState.value = _uiState.value.copy(
             selectedHistoryChat = chat,
@@ -428,7 +472,9 @@ class AskAiViewModel(
         hasUserEditedLabel = false
         _uiState.value = _uiState.value.copy(
             capturedImage = null,
+            croppedImage = null,
             identifiedLabel = "",
+            classificationResults = emptyList(),
             isClassifying = false,
             isLoading = false,
             isStreaming = false,
