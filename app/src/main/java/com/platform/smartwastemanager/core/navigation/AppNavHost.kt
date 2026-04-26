@@ -270,9 +270,13 @@ fun AppNavHost(
 
         composable(Routes.MAP) {
             MapScreen(
-                viewModel            = mapViewModel,
-                isDriverInDriverView = isDriverInDriverView,
-                driverUid            = currentUser?.uid ?: ""
+                viewModel              = mapViewModel,
+                routeViewModel         = routeViewModel,
+                isDriverInDriverView   = isDriverInDriverView,
+                driverUid              = currentUser?.uid ?: "",
+                onNavigateToActiveRoute = {
+                    navController.navigate(Routes.buildActiveRoute("Radius Pickup", ""))
+                }
             )
         }
 

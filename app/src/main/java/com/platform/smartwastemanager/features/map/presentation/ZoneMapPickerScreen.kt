@@ -195,11 +195,15 @@ fun ZoneMapPickerScreen(
                     }
 
                     // ---- Show the NEW zone being created ----
+                    // key(pickedLatLng) forces the MarkerState to be recreated whenever
+                    // the user taps a new location, so the pin always tracks the circle.
                     pickedLatLng?.let { centre ->
-                        Marker(
-                            state = rememberMarkerState(position = centre),
-                            title = zoneName.ifBlank { "New Zone Centre" }
-                        )
+                        key(centre) {
+                            Marker(
+                                state = rememberMarkerState(position = centre),
+                                title = zoneName.ifBlank { "New Zone Centre" }
+                            )
+                        }
                         Circle(
                             center      = centre,
                             radius      = radiusMeters.toDouble(),

@@ -37,32 +37,26 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/**
- * Map screen — shows pending waste report pins and, for drivers in driver view,
- * also shows their zone circles as overlays.
- *
- * @param driverUid  UID of the signed-in user. Pass empty string for non-drivers.
- *                   Used to load zone overlays for drivers.
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MapScreen(
     viewModel: MapViewModel,
+    routeViewModel: RouteViewModel,
     isDriverInDriverView: Boolean,
-    driverUid: String = ""
+    driverUid: String = "",
+    onNavigateToActiveRoute: () -> Unit = {}
 ) {
-    val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
-    val isDismissMode by viewModel.isDismissMode.collectAsStateWithLifecycle()
-    val pinToConfirm  by viewModel.pinToConfirmDismiss.collectAsStateWithLifecycle()
-    val driverZones   by viewModel.driverZones.collectAsStateWithLifecycle()
+    val uiState           by viewModel.uiState.collectAsStateWithLifecycle()
+    val driverZones       by viewModel.driverZones.collectAsStateWithLifecycle()
+    val radiusSelectState by viewModel.radiusSelectState.collectAsStateWithLifecycle()
 
     val context           = LocalContext.current
     val scope             = rememberCoroutineScope()
     val focusManager      = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearching by remember { mutableStateOf(false) }
+    var searchQuery  by remember { mutableStateOf("") }
+    var isSearching  by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     val locationPermissions = rememberMultiplePermissionsState(
@@ -72,15 +66,13 @@ fun MapScreen(
         )
     )
 
-    val defaultPosition = LatLng(-26.2041, 28.0473)
+    val defaultPosition     = LatLng(-26.2041, 28.0473)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 11f)
     }
 
-    // New: track the street name at the camera's center
     var currentStreetName by remember { mutableStateOf("") }
 
-    // Update street name when camera stops moving
     LaunchedEffect(cameraPositionState.isMoving) {
         if (!cameraPositionState.isMoving) {
             val center = cameraPositionState.position.target
@@ -89,15 +81,12 @@ fun MapScreen(
         }
     }
 
-    // Centre on device location when screen opens
     LaunchedEffect(Unit) {
         if (locationPermissions.allPermissionsGranted) {
             val geoPoint = LocationHelper.getCurrentLocation(context)
             if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
                 cameraPositionState.animate(
-                    CameraUpdateFactory.newLatLngZoom(
-                        LatLng(geoPoint.latitude, geoPoint.longitude), 15f
-                    )
+                    CameraUpdateFactory.newLatLngZoom(LatLng(geoPoint.latitude, geoPoint.longitude), 15f)
                 )
             }
         } else {
@@ -110,47 +99,21 @@ fun MapScreen(
             val geoPoint = LocationHelper.getCurrentLocation(context)
             if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
                 cameraPositionState.animate(
-                    CameraUpdateFactory.newLatLngZoom(
-                        LatLng(geoPoint.latitude, geoPoint.longitude), 15f
-                    )
+                    CameraUpdateFactory.newLatLngZoom(LatLng(geoPoint.latitude, geoPoint.longitude), 15f)
                 )
             }
         }
     }
 
-    // Load / clear driver zones based on view mode
     LaunchedEffect(isDriverInDriverView, driverUid) {
-        if (isDriverInDriverView && driverUid.isNotBlank()) {
-            viewModel.loadDriverZones(driverUid)
-        } else {
-            viewModel.clearDriverZones()
-        }
+        if (isDriverInDriverView && driverUid.isNotBlank()) viewModel.loadDriverZones(driverUid)
+        else viewModel.clearDriverZones()
     }
 
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
-    // ---- Dismiss confirmation dialog ----
-    if (pinToConfirm != null && isDriverInDriverView) {
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelDismiss() },
-            title = { Text("Dismiss Report?") },
-            text  = {
-                Text(
-                    "Mark this ${pinToConfirm!!.category} report at " +
-                            "'${pinToConfirm!!.streetName}' as dismissed?\n\n" +
-                            "The pin will be removed from the map."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmDismiss() }) {
-                    Text("Dismiss", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelDismiss() }) { Text("Cancel") }
-            }
-        )
-    }
+    // Convenience casts
+    val activeRadius = radiusSelectState as? RadiusSelectState.Active
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -160,95 +123,101 @@ fun MapScreen(
             onRefresh = {
                 isRefreshing = true
                 viewModel.loadPins()
-                if (isDriverInDriverView && driverUid.isNotBlank()) {
-                    viewModel.loadDriverZones(driverUid)
-                }
+                if (isDriverInDriverView && driverUid.isNotBlank()) viewModel.loadDriverZones(driverUid)
             },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize()) {
 
-            // ================================================================
-            // GOOGLE MAP
-            // ================================================================
-            GoogleMap(
-                modifier            = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                properties          = MapProperties(
-                    isMyLocationEnabled = locationPermissions.allPermissionsGranted
-                ),
-                uiSettings = MapUiSettings(
-                    myLocationButtonEnabled = false,
-                    zoomControlsEnabled     = true
-                )
-            ) {
-                // ---- Waste report pins (everyone) ----
-                if (uiState is MapUiState.Success) {
-                    val pins = (uiState as MapUiState.Success).pins
-                    pins.forEach { pin ->
-                        MapPinMarker(
-                            pin           = pin,
-                            isDismissMode = isDismissMode && isDriverInDriverView,
-                            dateFormat    = dateFormat,
-                            onDismissTap  = { viewModel.onPinTappedForDismiss(pin) }
-                        )
+                // ============================================================
+                // GOOGLE MAP
+                // ============================================================
+                GoogleMap(
+                    modifier            = Modifier.fillMaxSize(),
+                    cameraPositionState = cameraPositionState,
+                    properties          = MapProperties(
+                        isMyLocationEnabled = locationPermissions.allPermissionsGranted
+                    ),
+                    uiSettings = MapUiSettings(
+                        myLocationButtonEnabled = false,
+                        zoomControlsEnabled     = true
+                    ),
+                    onMapClick = { latLng ->
+                        // When in radius mode a tap moves the circle centre
+                        if (activeRadius != null) {
+                            viewModel.updateRadiusCenter(latLng.latitude, latLng.longitude)
+                        }
                     }
-                }
-
-                // ---- Driver zone overlays (driver view only) ----
-                if (isDriverInDriverView) {
-                    driverZones.forEach { zone ->
-                        ZoneOverlay(zone = zone)
-                    }
-                }
-            }
-
-            // ================================================================
-            // SEARCH BAR
-            // ================================================================
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Card(
-                    modifier  = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    shape     = RoundedCornerShape(24.dp),
-                    colors    = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    // ---- Waste-report pins ----
+                    if (uiState is MapUiState.Success) {
+                        val pins = (uiState as MapUiState.Success).pins
+                        pins.forEach { pin ->
+                            key(pin.reportId) {
+                                MapPinMarker(pin = pin, dateFormat = dateFormat)
+                            }
+                        }
+                    }
+
+                    // ---- Driver zone overlays (hidden while radius mode is active to declutter) ----
+                    if (isDriverInDriverView && activeRadius == null) {
+                        driverZones.forEach { zone -> ZoneOverlay(zone = zone) }
+                    }
+
+
+                    // ---- Radius selection overlay (circle only — no centre marker) ----
+                    if (activeRadius != null) {
+                        val centre = LatLng(activeRadius.centerLat, activeRadius.centerLng)
+                        Circle(
+                            center      = centre,
+                            radius      = activeRadius.radiusMeters.toDouble(),
+                            fillColor   = Color(0x2200AAFF),
+                            strokeColor = Color(0xFF0077CC),
+                            strokeWidth = 3f
                         )
-                        TextField(
-                            value         = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder   = { Text("Search location...") },
-                            modifier      = Modifier.weight(1f),
-                            colors        = TextFieldDefaults.colors(
-                                focusedContainerColor   = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor   = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                            ),
-                            singleLine      = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(
-                                onSearch = {
+                    }
+                }
+
+                // ============================================================
+                // SEARCH BAR  (top centre)
+                // ============================================================
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Card(
+                        modifier  = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        shape     = RoundedCornerShape(24.dp),
+                        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(
+                            modifier          = Modifier
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextField(
+                                value         = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder   = { Text("Search location...") },
+                                modifier      = Modifier.weight(1f),
+                                colors        = TextFieldDefaults.colors(
+                                    focusedContainerColor   = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor   = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                singleLine      = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = {
                                     if (searchQuery.isNotBlank()) {
                                         scope.launch {
                                             isSearching = true
@@ -266,213 +235,344 @@ fun MapScreen(
                                             }
                                         }
                                     }
+                                })
+                            )
+                            if (isSearching) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
                                 }
-                            )
-                        )
-                        if (isSearching) {
-                            CircularProgressIndicator(
-                                modifier    = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            }
+                        }
+                    }
+
+                    if (currentStreetName.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors    = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            ),
+                            shape     = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Place, contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text  = currentStreetName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
                 }
 
-                // Show current location details if available
-                if (currentStreetName.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                // ============================================================
+                // ZONE LEGEND  (top start, below search bar, hidden in radius mode)
+                // ============================================================
+                if (isDriverInDriverView && driverZones.isNotEmpty() && activeRadius == null) {
                     Card(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 150.dp, start = 16.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.93f)
                         ),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        shape = MaterialTheme.shapes.small
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier          = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.Place,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(color = Color(0xFF00C853), shape = CircleShape)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = currentStreetName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                                text       = "${driverZones.size} zone${if (driverZones.size != 1) "s" else ""} shown",
+                                style      = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color      = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
                 }
-            }
 
-            // ================================================================
-            // ZONE LEGEND — shown when driver view is active and zones exist
-            // ================================================================
-            if (isDriverInDriverView && driverZones.isNotEmpty()) {
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(top = 150.dp, start = 16.dp), // Pushed down to avoid overlap
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                            .copy(alpha = 0.93f)
-                    ),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Row(
-                        modifier          = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Small green circle swatch — background import now present
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(
-                                    color = Color(0xFF00C853),
-                                    shape = CircleShape
-                                )
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text       = "${driverZones.size} zone${if (driverZones.size != 1) "s" else ""} shown",
-                            style      = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color      = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            }
-
-            // ================================================================
-            // LOADING / ERROR states
-            // ================================================================
-            when (val state = uiState) {
-                is MapUiState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                is MapUiState.Error -> {
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Column(
-                            modifier            = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(state.message, color = MaterialTheme.colorScheme.onErrorContainer)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = { viewModel.loadPins() }) { Text("Retry") }
-                        }
-                    }
-                }
-                is MapUiState.Success -> {
-                    if (state.pins.isEmpty() && !isDriverInDriverView) {
+                // ============================================================
+                // LOADING / ERROR / EMPTY states
+                // ============================================================
+                when (val state = uiState) {
+                    is MapUiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    is MapUiState.Error -> {
                         Card(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 150.dp, start = 16.dp, end = 16.dp),
-                            colors   = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                            modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                            colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                         ) {
-                            Text(
-                                "✅ No pending waste reports",
-                                style    = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // DRIVER OVERLAYS (dismiss mode banner + toggle FAB)
-            // ================================================================
-            if (isDriverInDriverView) {
-                if (isDismissMode) {
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 150.dp, start = 16.dp, end = 16.dp),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Text(
-                            "🗑️ Dismiss Mode — tap a pin to dismiss it",
-                            style    = MaterialTheme.typography.bodyMedium,
-                            color    = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(12.dp)
-                        )
-                    }
-                }
-
-                SmallFloatingActionButton(
-                    onClick        = { viewModel.toggleDismissMode() },
-                    modifier       = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 150.dp, end = 16.dp),
-                    containerColor = if (isDismissMode)
-                        MaterialTheme.colorScheme.error
-                    else
-                        MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Icon(
-                        imageVector        = if (isDismissMode) Icons.Default.Close
-                        else Icons.Default.DeleteSweep,
-                        contentDescription = if (isDismissMode) "Exit dismiss mode"
-                        else "Enter dismiss mode",
-                        tint               = if (isDismissMode) Color.White
-                        else MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            // ================================================================
-            // MY LOCATION FAB
-            // ================================================================
-            FloatingActionButton(
-                onClick = {
-                    if (locationPermissions.allPermissionsGranted) {
-                        scope.launch {
-                            val geoPoint = LocationHelper.getCurrentLocation(context)
-                            if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
-                                cameraPositionState.animate(
-                                    CameraUpdateFactory.newLatLngZoom(
-                                        LatLng(geoPoint.latitude, geoPoint.longitude), 15f
-                                    )
-                                )
+                            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(state.message, color = MaterialTheme.colorScheme.onErrorContainer)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(onClick = { viewModel.loadPins() }) { Text("Retry") }
                             }
                         }
-                    } else {
-                        locationPermissions.launchMultiplePermissionRequest()
                     }
-                },
-                modifier       = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp),
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            ) {
-                Icon(
-                    Icons.Default.MyLocation,
-                    contentDescription = "My Location",
-                    tint               = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-        }
-        }
+                    is MapUiState.Success -> {
+                        if (state.pins.isEmpty() && !isDriverInDriverView) {
+                            Card(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 150.dp, start = 16.dp, end = 16.dp),
+                                colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Text("✅ No pending waste reports",
+                                    style    = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(12.dp))
+                            }
+                        }
+                    }
+                }
+
+                // ============================================================
+                // CANCEL ICON (top end) — shown while radius mode is active
+                // ============================================================
+                if (isDriverInDriverView && activeRadius != null) {
+                    SmallFloatingActionButton(
+                        onClick        = { viewModel.exitRadiusMode() },
+                        modifier       = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 150.dp, end = 16.dp),
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Cancel radius selection",
+                            tint = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+
+                // ============================================================
+                // RADIUS CONTROL PANEL — full-width, pinned to very bottom,
+                // sits above the bottom navigation bar and covers zoom controls
+                // ============================================================
+                if (isDriverInDriverView && activeRadius != null) {
+                    Card(
+                        modifier  = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        shape     = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        colors    = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 14.dp)
+                        ) {
+                            // Title row: label + live count
+                            Row(
+                                modifier              = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment     = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Select Collection Radius",
+                                    style      = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text  = "${activeRadius.pinsInRadius.size} report${if (activeRadius.pinsInRadius.size != 1) "s" else ""} in range",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (activeRadius.pinsInRadius.isEmpty())
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    else
+                                        MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            Text(
+                                "Tap the map to move the selection centre",
+                                style    = MaterialTheme.typography.labelSmall,
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+                            )
+
+                            // Radius slider
+                            Row(
+                                modifier          = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Radius:",
+                                    style    = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.width(52.dp)
+                                )
+                                Slider(
+                                    value         = activeRadius.radiusMeters,
+                                    onValueChange = { viewModel.updateRadius(it) },
+                                    valueRange    = 200f..5000f,
+                                    steps         = 47,
+                                    modifier      = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text     = if (activeRadius.radiusMeters >= 1000f)
+                                        "${"%.1f".format(activeRadius.radiusMeters / 1000f)} km"
+                                    else
+                                        "${activeRadius.radiusMeters.toInt()} m",
+                                    style    = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier
+                                        .width(52.dp)
+                                        .padding(start = 6.dp)
+                                )
+                            }
+
+                            // Action buttons: [Use My Location] [Start Route]
+                            Row(
+                                modifier              = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick  = {
+                                        scope.launch {
+                                            val gp = LocationHelper.getCurrentLocation(context)
+                                            if (gp.latitude != 0.0 || gp.longitude != 0.0) {
+                                                viewModel.updateRadiusCenter(gp.latitude, gp.longitude)
+                                                cameraPositionState.animate(
+                                                    CameraUpdateFactory.newLatLngZoom(
+                                                        LatLng(gp.latitude, gp.longitude), 14f
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        Icons.Default.MyLocation,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        "My Location",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                Button(
+                                    onClick  = {
+                                        val pins = activeRadius.pinsInRadius
+                                        if (pins.isNotEmpty()) {
+                                            scope.launch {
+                                                val gp = LocationHelper.getCurrentLocation(context)
+                                                routeViewModel.loadRouteForPins(
+                                                    pins      = pins,
+                                                    driverLat = gp.latitude,
+                                                    driverLng = gp.longitude
+                                                )
+                                                viewModel.exitRadiusMode()
+                                                onNavigateToActiveRoute()
+                                            }
+                                        }
+                                    },
+                                    enabled  = activeRadius.pinsInRadius.isNotEmpty(),
+                                    modifier = Modifier.weight(1f),
+                                    colors   = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Icon(
+                                        Icons.Default.Navigation,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        "Start Route (${activeRadius.pinsInRadius.size})",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ============================================================
+                // MY LOCATION FAB  (bottom start — hidden while radius panel is open)
+                // ============================================================
+                if (activeRadius == null) {
+                    FloatingActionButton(
+                        onClick = {
+                            if (locationPermissions.allPermissionsGranted) {
+                                scope.launch {
+                                    val geoPoint = LocationHelper.getCurrentLocation(context)
+                                    if (geoPoint.latitude != 0.0 || geoPoint.longitude != 0.0) {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngZoom(
+                                                LatLng(geoPoint.latitude, geoPoint.longitude), 15f
+                                            )
+                                        )
+                                    }
+                                }
+                            } else {
+                                locationPermissions.launchMultiplePermissionRequest()
+                            }
+                        },
+                        modifier       = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp),
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Icon(Icons.Default.MyLocation, contentDescription = "My Location",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+
+                // ============================================================
+                // RADIUS-SELECT FAB  (top end, driver only, visible when NOT in radius mode)
+                // ============================================================
+                if (isDriverInDriverView && activeRadius == null) {
+                    SmallFloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                val gp = LocationHelper.getCurrentLocation(context)
+                                val lat = if (gp.latitude  != 0.0) gp.latitude  else cameraPositionState.position.target.latitude
+                                val lng = if (gp.longitude != 0.0) gp.longitude else cameraPositionState.position.target.longitude
+                                viewModel.enterRadiusMode(lat, lng)
+                                cameraPositionState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(LatLng(lat, lng), 14f)
+                                )
+                            }
+                        },
+                        modifier       = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 150.dp, end = 16.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.DeleteSweep,
+                            contentDescription = "Select radius for collection",
+                            tint               = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+            } // Box
+        } // PullToRefreshBox
+
         LaunchedEffect(isRefreshing) {
             if (isRefreshing) {
                 delay(700)
@@ -483,13 +583,12 @@ fun MapScreen(
 }
 
 // =====================================================================
-// ZoneOverlay — draws one zone circle + centre marker on the map
+// ZoneOverlay
 // =====================================================================
 
 @Composable
 private fun ZoneOverlay(zone: Zone) {
     val centre = LatLng(zone.centerLat, zone.centerLng)
-
     Circle(
         center      = centre,
         radius      = zone.radiusMeters,
@@ -497,7 +596,6 @@ private fun ZoneOverlay(zone: Zone) {
         strokeColor = Color(0xFF00C853),
         strokeWidth = 2f
     )
-
     Marker(
         state   = rememberMarkerState(position = centre),
         title   = "📍 ${zone.name}",
@@ -507,15 +605,13 @@ private fun ZoneOverlay(zone: Zone) {
 }
 
 // =====================================================================
-// MapPinMarker — waste report pin
+// MapPinMarker — waste-report pin (no dismiss mode)
 // =====================================================================
 
 @Composable
 private fun MapPinMarker(
     pin: MapPin,
-    isDismissMode: Boolean,
-    dateFormat: java.text.SimpleDateFormat,
-    onDismissTap: () -> Unit
+    dateFormat: java.text.SimpleDateFormat
 ) {
     val position      = LatLng(pin.location.latitude, pin.location.longitude)
     val formattedTime = remember(pin.timestamp) { dateFormat.format(pin.timestamp.toDate()) }
@@ -529,8 +625,7 @@ private fun MapPinMarker(
         state   = rememberMarkerState(position = position),
         title   = pin.category,
         snippet = "${pin.streetName}\n$formattedTime",
-        icon    = BitmapDescriptorFactory.defaultMarker(markerHue),
-        onClick = { _ -> if (isDismissMode) { onDismissTap(); true } else false }
+        icon    = BitmapDescriptorFactory.defaultMarker(markerHue)
     ) { _ ->
         Column(modifier = Modifier.padding(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -538,11 +633,8 @@ private fun MapPinMarker(
                     if (pin.reportType == ReportType.OVERFLOWING_BIN.displayName) "⚠️ " else "🗑️ ",
                     style = MaterialTheme.typography.titleSmall
                 )
-                Text(
-                    pin.category,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Text(pin.category, style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface)
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
@@ -553,16 +645,10 @@ private fun MapPinMarker(
                 else
                     MaterialTheme.colorScheme.primary
             )
-            Text(
-                "📍 ${pin.streetName}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "🕐 $formattedTime",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text("📍 ${pin.streetName}", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("🕐 $formattedTime", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

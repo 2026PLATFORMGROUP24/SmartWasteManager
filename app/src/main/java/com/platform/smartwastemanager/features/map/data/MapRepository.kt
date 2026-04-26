@@ -9,6 +9,7 @@ import com.google.firebase.ktx.Firebase
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.google.android.gms.maps.model.LatLng
 import com.platform.smartwastemanager.core.util.Constants
+import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
 import com.platform.smartwastemanager.features.map.domain.MapPin
 import com.platform.smartwastemanager.features.map.domain.RouteResult
 import com.platform.smartwastemanager.features.map.domain.RouteStop
@@ -62,6 +63,32 @@ class MapRepository {
                     } catch (e: Exception) { null }
                 } ?: emptyList()
                 trySend(pins)
+            }
+        awaitClose { listener.remove() }
+    }.catch { emit(emptyList()) }
+
+    /** Real-time stream of ALL collection points (all users) — used by driver map views. */
+    fun getAllCollectionPoints(): Flow<List<CollectionPoint>> = callbackFlow {
+        val listener = firestore.collection("collection_points")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
+                val points = snapshot?.documents?.mapNotNull { doc ->
+                    try {
+                        CollectionPoint(
+                            id         = doc.id,
+                            userId     = doc.getString("userId") ?: "",
+                            name       = doc.getString("name") ?: "",
+                            location   = doc.getGeoPoint("location") ?: GeoPoint(0.0, 0.0),
+                            streetName = doc.getString("streetName") ?: "",
+                            zoneId     = doc.getString("zoneId") ?: "",
+                            markedForCollectionDays = (doc.get("markedForCollectionDays") as? List<*>)
+                                ?.filterIsInstance<String>() ?: emptyList(),
+                            createdAt  = doc.getTimestamp("createdAt")
+                                ?: com.google.firebase.Timestamp.now()
+                        )
+                    } catch (_: Exception) { null }
+                } ?: emptyList()
+                trySend(points)
             }
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
@@ -256,14 +283,15 @@ class MapRepository {
                     try {
                         val gp = doc.getGeoPoint("location") ?: return@mapNotNull null
                         RouteStop(
-                            reportId = doc.id,
-                            location = gp,
-                            streetName = doc.getString("name")?.takeIf { it.isNotBlank() }
-                                ?: doc.getString("streetName")
-                                ?: "Collection Point",
-                            category = doc.getString("streetName")?.takeIf { it.isNotBlank() }
-                                ?: "Collection Point",
-                            type = RouteStopType.COLLECTION_POINT,
+                            reportId   = doc.id,
+                            location   = gp,
+                            // Show only the street address — never the user-assigned name
+                            // (names like "HOME" must not be visible to drivers for privacy)
+                            streetName = doc.getString("streetName")
+                                ?.takeIf { it.isNotBlank() }
+                                ?: "Unknown Street",
+                            category   = "COLLECTION POINT",
+                            type       = RouteStopType.COLLECTION_POINT,
                             isCollected = false
                         )
                     } catch (e: Exception) { null }
@@ -449,6 +477,75 @@ class MapRepository {
         }
 
         return if (road.isNotBlank()) "$action onto $road ($distStr)" else "$action ($distStr)"
+    }
+
+    /**
+     * Calculates an optimised collection route for a pre-filtered list of [MapPin]s.
+     * Mirrors the logic in calculateRouteForZone but skips all zone/schedule filtering.
+     */
+    suspend fun calculateRouteForPins(
+        pins: List<MapPin>,
+        driverLat: Double = 0.0,
+        driverLng: Double = 0.0
+    ): RouteResult {
+        val stops = pins.map { pin ->
+            RouteStop(
+                reportId   = pin.reportId,
+                location   = pin.location,
+                streetName = pin.streetName,
+                category   = pin.category,
+                type       = RouteStopType.WASTE_REPORT,
+                isCollected = false
+            )
+        }
+        if (stops.isEmpty()) return RouteResult(emptyList(), emptyList())
+        if (stops.size == 1) return RouteResult(stops, emptyList())
+
+        val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
+        val originLat = if (hasDriverLocation) driverLat else stops[0].location.latitude
+        val originLng = if (hasDriverLocation) driverLng else stops[0].location.longitude
+
+        val nearestFirstStops = stops.sortedBy { stop ->
+            haversineDistanceMeters(originLat, originLng, stop.location.latitude, stop.location.longitude)
+        }
+
+        val coordsList = buildList {
+            if (hasDriverLocation) add("$driverLng,$driverLat")
+            addAll(nearestFirstStops.map { "${it.location.longitude},${it.location.latitude}" })
+        }
+        val coords    = coordsList.joinToString(";")
+        val approaches = coordsList.indices.joinToString(";") { "curb" }
+
+        return try {
+            val resp = osrmService.getOptimisedTrip(
+                coordinates = coords,
+                roundtrip   = false,
+                source      = "first",
+                destination = "last",
+                approaches  = approaches
+            )
+            if (resp.code == "Ok" && resp.waypoints.isNotEmpty()) {
+                val driverOffset  = if (hasDriverLocation) 1 else 0
+                val stopWaypoints = resp.waypoints.drop(driverOffset)
+                val orderedStops  = nearestFirstStops
+                    .mapIndexed { i, stop ->
+                        val pos = (stopWaypoints.getOrNull(i)?.waypointIndex
+                            ?: (i + driverOffset)) - driverOffset
+                        pos to stop
+                    }
+                    .sortedBy { it.first }
+                    .map { it.second }
+                val roadPolyline  = resp.trips.firstOrNull()
+                    ?.geometry?.coordinates
+                    ?.mapNotNull { coord -> if (coord.size >= 2) LatLng(coord[1], coord[0]) else null }
+                    ?: emptyList()
+                RouteResult(stops = orderedStops, roadPolyline = roadPolyline)
+            } else {
+                RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
+            }
+        } catch (_: Exception) {
+            RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
+        }
     }
 
     suspend fun collectStop(reportId: String) {

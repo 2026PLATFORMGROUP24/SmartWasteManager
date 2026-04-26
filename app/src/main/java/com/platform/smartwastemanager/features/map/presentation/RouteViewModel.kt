@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.maps.model.LatLng
+import com.platform.smartwastemanager.features.collectionpoint.domain.CollectionPoint
 import com.platform.smartwastemanager.features.map.data.MapRepository
+import com.platform.smartwastemanager.features.map.domain.MapPin
 import com.platform.smartwastemanager.features.map.domain.RouteStop
 import com.platform.smartwastemanager.features.map.domain.RouteStopType
 import com.platform.smartwastemanager.features.map.domain.Zone
@@ -82,11 +84,19 @@ class RouteViewModel(
 
     private var allZonesJob: Job? = null
     private var routeJob: Job? = null
+    private var cpJob: Job? = null
     private var currentScheduleDayId: String = ""
 
-    // =========================================================================
-    // All-Zones (Global Zone Management)
-    // =========================================================================
+    // ---- All collection points (shown on driver maps) ----
+    private val _allCollectionPoints = MutableStateFlow<List<CollectionPoint>>(emptyList())
+    val allCollectionPoints: StateFlow<List<CollectionPoint>> = _allCollectionPoints.asStateFlow()
+
+    fun loadAllCollectionPoints() {
+        cpJob?.cancel()
+        cpJob = viewModelScope.launch {
+            mapRepository.getAllCollectionPoints().collect { pts -> _allCollectionPoints.value = pts }
+        }
+    }
 
     fun loadAllZones() {
         allZonesJob?.cancel()
@@ -153,6 +163,41 @@ class RouteViewModel(
     // =========================================================================
     // Active Route
     // =========================================================================
+
+    /**
+     * Builds an optimised collection route directly from a list of [MapPin]s — used by
+     * the Map screen's radius-select mode so drivers can collect all reports in an area
+     * without going through the schedule/zone flow.
+     */
+    fun loadRouteForPins(
+        pins: List<MapPin>,
+        driverLat: Double = 0.0,
+        driverLng: Double = 0.0
+    ) {
+        currentScheduleDayId = ""
+        routeJob?.cancel()
+        routeJob = viewModelScope.launch {
+            _activeRouteState.value = ActiveRouteUiState.Calculating
+            try {
+                val result = withTimeout(20_000L) {
+                    mapRepository.calculateRouteForPins(
+                        pins      = pins,
+                        driverLat = driverLat,
+                        driverLng = driverLng
+                    )
+                }
+                _activeRouteState.value = if (result.stops.isEmpty()) {
+                    ActiveRouteUiState.Error("No stops found in the selected area.")
+                } else {
+                    ActiveRouteUiState.Ready(stops = result.stops, roadPolyline = result.roadPolyline)
+                }
+            } catch (_: TimeoutCancellationException) {
+                _activeRouteState.value = ActiveRouteUiState.Error("Route calculation timed out. Please try again.")
+            } catch (e: Exception) {
+                _activeRouteState.value = ActiveRouteUiState.Error("Could not calculate route: ${e.message}")
+            }
+        }
+    }
 
     fun loadRouteForZone(
         zone: Zone,

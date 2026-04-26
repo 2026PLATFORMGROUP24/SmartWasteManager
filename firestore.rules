@@ -65,6 +65,18 @@ service cloud.firestore {
       allow write: if isDriver();
     }
 
+    // ── Recycling Guides ──────────────────────────────────────────────────────
+    match /recycling_guides/{guideId} {
+      // Everyone signed in can read guides
+      allow read: if isSignedIn();
+      // Any signed-in user can create a guide (createdBy must match their uid)
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+      // Owner or driver can update/delete
+      allow update, delete: if isSignedIn()
+                            && (resource.data.createdBy == request.auth.uid || isDriver());
+    }
+
     // ── Notification Requests (Cloud Function trigger) ────────────────────────
     match /notification_requests/{docId} {
       allow read:   if isDriver();

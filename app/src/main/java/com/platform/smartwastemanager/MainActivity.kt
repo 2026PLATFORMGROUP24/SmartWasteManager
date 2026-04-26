@@ -330,6 +330,11 @@ fun SmartWasteManagerAppContent() {
                             enabled = !isReportDisabled,
                             onClick  = {
                                 if (!isReportDisabled) {
+                                    // If ASK_AI is on top of the back stack, pop it first so
+                                    // it doesn't get saved as part of the tab's back-state.
+                                    if (navController.currentDestination?.route == Routes.ASK_AI) {
+                                        navController.popBackStack()
+                                    }
                                     navController.navigate(item.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true

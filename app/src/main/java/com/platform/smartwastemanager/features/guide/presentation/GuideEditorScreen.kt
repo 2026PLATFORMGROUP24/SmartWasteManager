@@ -57,7 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,7 +91,7 @@ fun GuideEditorScreen(
 
     var title by remember { mutableStateOf("") }
     var contentType by remember { mutableStateOf(GuideContentType.MARKDOWN) }
-    var contentMarkdown by remember { mutableStateOf("") }
+    var contentMarkdown by remember { mutableStateOf(TextFieldValue("")) }
     var externalUrl by remember { mutableStateOf("") }
     var existingImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var newImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -104,7 +105,7 @@ fun GuideEditorScreen(
     fun buildSnapshot(): String = listOf(
         title,
         contentType.name,
-        contentMarkdown,
+        contentMarkdown.text,
         externalUrl,
         existingImageUrls.joinToString(","),
         newImageUris.joinToString(",") { it.toString() }
@@ -127,7 +128,7 @@ fun GuideEditorScreen(
                     title = json.optString("title", "")
                     contentType = runCatching { GuideContentType.valueOf(json.optString("contentType", GuideContentType.MARKDOWN.name)) }
                         .getOrDefault(GuideContentType.MARKDOWN)
-                    contentMarkdown = json.optString("contentMarkdown", "")
+                    contentMarkdown = TextFieldValue(json.optString("contentMarkdown", ""))
                     externalUrl = json.optString("externalUrl", "")
                 }
             }
@@ -141,7 +142,7 @@ fun GuideEditorScreen(
             val guide = (detailState as GuideDetailUiState.Success).guide
             title = guide.title
             contentType = guide.getContentType()
-            contentMarkdown = guide.contentMarkdown
+            contentMarkdown = TextFieldValue(guide.contentMarkdown)
             externalUrl = guide.externalUrl
             existingImageUrls = guide.imageUrls
             hasPreloaded = true
@@ -149,14 +150,14 @@ fun GuideEditorScreen(
         }
     }
 
-    LaunchedEffect(title, contentType, contentMarkdown, externalUrl) {
+    LaunchedEffect(title, contentType, contentMarkdown.text, externalUrl) {
         if (!hasPreloaded) return@LaunchedEffect
         while (true) {
             delay(DRAFT_AUTOSAVE_INTERVAL_MS)
             val json = JSONObject().apply {
                 put("title", title)
                 put("contentType", contentType.name)
-                put("contentMarkdown", contentMarkdown)
+                put("contentMarkdown", contentMarkdown.text)
                 put("externalUrl", externalUrl)
             }
             prefs.edit().putString(draftKey, json.toString()).apply()
@@ -188,7 +189,7 @@ fun GuideEditorScreen(
 
     val isSaving = saveState is GuideSaveUiState.Saving
     val isTitleValid = title.isNotBlank()
-    val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.isNotBlank()
+    val isMarkdownValid = contentType != GuideContentType.MARKDOWN || contentMarkdown.text.isNotBlank()
     val isYoutubeValid = contentType != GuideContentType.YOUTUBE || isValidYoutubeVideoId(externalUrl.trim())
 
     val canSave = isTitleValid &&
@@ -305,12 +306,24 @@ fun GuideEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "**bold**" else "\n\n**bold**" }, label = { Text("Bold") })
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "*italic*" else "\n\n*italic*" }, label = { Text("Italic") })
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "`code`" else "\n\n`code`" }, label = { Text("Code") })
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "> quote" else "\n\n> quote" }, label = { Text("Quote") })
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "- list item" else "\n\n- list item" }, label = { Text("List") })
-                        AssistChip(onClick = { contentMarkdown += if (contentMarkdown.isBlank()) "# heading" else "\n\n# heading" }, label = { Text("Heading") })
+                        fun insertAtCursor(snippet: String) {
+                            val text = contentMarkdown.text
+                            val sel = contentMarkdown.selection
+                            val start = sel.start.coerceIn(0, text.length)
+                            val end = sel.end.coerceIn(0, text.length)
+                            val newText = text.substring(0, start) + snippet + text.substring(end)
+                            val newCursor = start + snippet.length
+                            contentMarkdown = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursor)
+                            )
+                        }
+                        AssistChip(onClick = { insertAtCursor("**bold**") }, label = { Text("Bold") })
+                        AssistChip(onClick = { insertAtCursor("*italic*") }, label = { Text("Italic") })
+                        AssistChip(onClick = { insertAtCursor("`code`") }, label = { Text("Code") })
+                        AssistChip(onClick = { insertAtCursor("> quote") }, label = { Text("Quote") })
+                        AssistChip(onClick = { insertAtCursor("- list item") }, label = { Text("List") })
+                        AssistChip(onClick = { insertAtCursor("# heading") }, label = { Text("Heading") })
                     }
 
                     OutlinedTextField(
@@ -322,11 +335,11 @@ fun GuideEditorScreen(
                             .heightIn(min = 220.dp)
                     )
 
-                    val wordCount = remember(contentMarkdown) {
-                        contentMarkdown.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    val wordCount = remember(contentMarkdown.text) {
+                        contentMarkdown.text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
                     }
                     Text(
-                        text = "${contentMarkdown.length} chars • $wordCount words",
+                        text = "${contentMarkdown.text.length} chars • $wordCount words",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -338,8 +351,8 @@ fun GuideEditorScreen(
 
                     if (showMarkdownPreview) {
                         MarkdownText(
-                            markdown = contentMarkdown,
-                            style = TextStyle(
+                            markdown = contentMarkdown.text,
+                            style = androidx.compose.ui.text.TextStyle(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
                             modifier = Modifier.fillMaxWidth()
@@ -431,7 +444,7 @@ fun GuideEditorScreen(
                         id = guideId ?: "",
                         title = title.trim(),
                         contentType = contentType.name,
-                        contentMarkdown = if (contentType == GuideContentType.MARKDOWN) contentMarkdown.trim() else "",
+                        contentMarkdown = if (contentType == GuideContentType.MARKDOWN) contentMarkdown.text.trim() else "",
                         externalUrl = normalizedExternal,
                         imageUrls = if (contentType == GuideContentType.MARKDOWN) existingImageUrls else emptyList(),
                         createdBy = currentUserUid

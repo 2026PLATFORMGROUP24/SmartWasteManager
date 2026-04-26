@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -287,7 +290,8 @@ fun ActiveRouteScreen(
                     val stopLat     = currentStop.location.latitude
                     val stopLng     = currentStop.location.longitude
 
-                    var cardExpanded by remember { mutableStateOf(true) }
+                    var cardExpanded    by remember { mutableStateOf(true) }
+                    var dragAccumulated by remember { mutableFloatStateOf(0f) }
 
                     // Reusable collect action — same logic used by both buttons
                     val onCollect: () -> Unit = {
@@ -356,11 +360,23 @@ fun ActiveRouteScreen(
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
 
-                                // ---- Always-visible header — tap to toggle ----
+                                // ---- Always-visible header — tap to toggle, drag to collapse/expand ----
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { cardExpanded = !cardExpanded }
+                                        .draggable(
+                                            orientation = Orientation.Vertical,
+                                            state       = rememberDraggableState { delta ->
+                                                dragAccumulated += delta
+                                                if (dragAccumulated > 40f && cardExpanded) {
+                                                    cardExpanded = false; dragAccumulated = 0f
+                                                } else if (dragAccumulated < -40f && !cardExpanded) {
+                                                    cardExpanded = true; dragAccumulated = 0f
+                                                }
+                                            },
+                                            onDragStopped = { dragAccumulated = 0f }
+                                        )
                                         .padding(horizontal = 20.dp, vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
@@ -496,7 +512,7 @@ fun ActiveRouteScreen(
                                                     )
                                                     Text(
                                                         text  = if (currentStop.type == RouteStopType.COLLECTION_POINT) {
-                                                            "📦 Collection Point  •  ${currentStop.category}"
+                                                            "📦 ${currentStop.category}  •  ${currentStop.streetName}"
                                                         } else {
                                                             "🗑️ ${currentStop.category}  •  Regular Pickup"
                                                         },
