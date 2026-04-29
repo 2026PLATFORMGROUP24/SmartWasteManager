@@ -127,8 +127,23 @@ class AuthViewModel(
         authRepository.signOut()
         _currentUser.value = null
         _uiState.value = AuthUiState.Idle
-        // Notify MainActivity to clear all ViewModels
         onSignOut?.invoke()
+    }
+
+    fun signInWithGoogle(idToken: String) {
+        viewModelScope.launch {
+            _uiState.value = AuthUiState.Loading
+            val result = authRepository.signInWithGoogle(idToken)
+            if (result.isSuccess) {
+                _currentUser.value = result.getOrNull()
+                _uiState.value = AuthUiState.Success(result.getOrNull()!!)
+                onAuthSuccess?.invoke()
+            } else {
+                _uiState.value = AuthUiState.Error(
+                    result.exceptionOrNull()?.message ?: "Google sign-in failed"
+                )
+            }
+        }
     }
 
     fun resetState() {

@@ -1,5 +1,9 @@
 package com.platform.smartwastemanager.features.auth.presentation
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -8,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -17,6 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 
 /**
  * The login screen. Users enter their email and password to sign in.
@@ -35,11 +43,42 @@ fun LoginScreen(
 ) {
     // Observe the ViewModel's state
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     // Local state for the text fields
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+
+    // Build Google Sign-In client — requires default_web_client_id from google-services.json
+    val googleSignInClient = remember {
+        val webClientId = try {
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId) else ""
+        } catch (e: Exception) { "" }
+
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(webClientId)
+            .requestEmail()
+            .build()
+        GoogleSignIn.getClient(context, gso)
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            try {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    .getResult(ApiException::class.java)
+                account.idToken?.let { idToken ->
+                    viewModel.signInWithGoogle(idToken)
+                }
+            } catch (e: ApiException) {
+                // error handled via uiState
+            }
+        }
+    }
 
     // React to state changes from the ViewModel
     LaunchedEffect(uiState) {
@@ -145,6 +184,43 @@ fun LoginScreen(
             } else {
                 Text("Sign In", style = MaterialTheme.typography.labelLarge)
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ---- Divider with "or" label ----
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            HorizontalDivider(modifier = Modifier.weight(1f))
+            Text(
+                text = "  or  ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            HorizontalDivider(modifier = Modifier.weight(1f))
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ---- Google Sign-In button ----
+        OutlinedButton(
+            onClick = {
+                googleSignInClient.signOut().addOnCompleteListener {
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                }
+            },
+            enabled = uiState !is AuthUiState.Loading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Text(
+                text = "Sign in with Google",
+                style = MaterialTheme.typography.labelLarge
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

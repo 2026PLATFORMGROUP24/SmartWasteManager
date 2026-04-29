@@ -99,6 +99,7 @@ dependencies {
     // ---- Google Maps ----
     implementation(libs.maps.compose)
     implementation(libs.play.services.location)
+    implementation(libs.play.services.auth)
 
     // ---- ML Kit (kept) ----
     implementation(libs.mlkit.image.labeling)

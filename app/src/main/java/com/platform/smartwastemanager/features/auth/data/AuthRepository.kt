@@ -2,6 +2,7 @@ package com.platform.smartwastemanager.features.auth.data
 
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import com.platform.smartwastemanager.core.util.Constants
@@ -182,8 +183,52 @@ class AuthRepository {
         }
     }
 
-    /** Signs the current user out. */
+    /** Signs out. */
     fun signOut() { firebaseAuth.signOut() }
+
+    /**
+     * Signs in with a Google ID token obtained from the Google Sign-In flow.
+     * Firebase exchanges the ID token for a Firebase credential and signs the user in.
+     * If the user has no Firestore profile yet, one is created with role "user".
+     */
+    suspend fun signInWithGoogle(idToken: String): Result<User> {
+        return try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            val authResult = firebaseAuth.signInWithCredential(credential).await()
+            val uid = authResult.user?.uid
+                ?: return Result.failure(Exception("Google sign-in failed: no UID"))
+            val email = authResult.user?.email ?: ""
+            val displayName = authResult.user?.displayName ?: email.substringBefore("@")
+
+            // Fetch or create the Firestore profile
+            val doc = firestore.collection(Constants.COLLECTION_USERS).document(uid).get().await()
+            val user = if (doc.exists()) {
+                User(
+                    uid      = uid,
+                    username = doc.getString("username") ?: displayName,
+                    email    = doc.getString("email")    ?: email,
+                    role     = UserRole.fromString(doc.getString("role") ?: "user"),
+                    fcmToken = doc.getString("fcmToken") ?: ""
+                )
+            } else {
+                firestore.collection(Constants.COLLECTION_USERS).document(uid)
+                    .set(mapOf(
+                        "uid"       to uid,
+                        "username"  to displayName,
+                        "email"     to email,
+                        "role"      to "user",
+                        "fcmToken"  to "",
+                        "createdAt" to Timestamp.now()
+                    )).await()
+                User(uid = uid, username = displayName, email = email, role = UserRole.USER, fcmToken = "")
+            }
+
+            saveFcmTokenForUid(uid)
+            Result.success(user)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     /** Returns the UID of the currently signed-in user, or null. */
     fun getCurrentUserUid(): String? = firebaseAuth.currentUser?.uid
