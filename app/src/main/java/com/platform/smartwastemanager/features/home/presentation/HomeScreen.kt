@@ -505,10 +505,25 @@ private fun UserScheduleCard(
 
 private fun formatDuration(duration: Duration): String {
     val totalSeconds = duration.seconds
-    if (totalSeconds <= 0) return "00:00"
+    if (totalSeconds <= 0) return "0 minutes"
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
-    return String.format(Locale.getDefault(), "%02d:%02d", hours, minutes)
+
+    return when {
+        hours > 0 -> {
+            val hText = if (hours == 1L) "hour" else "hours"
+            val mText = if (minutes == 1L) "minute" else "minutes"
+            if (minutes > 0) {
+                "$hours $hText $minutes $mText"
+            } else {
+                "$hours $hText"
+            }
+        }
+        else -> {
+            val mText = if (minutes == 1L) "minute" else "minutes"
+            "$minutes $mText"
+        }
+    }
 }
 
 private fun String.toDayOfWeekLocal(): DayOfWeek? {
