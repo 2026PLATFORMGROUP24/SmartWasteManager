@@ -1,5 +1,6 @@
 package com.platform.smartwastemanager.features.guide.presentation
 
+import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,9 +16,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.platform.smartwastemanager.features.guide.domain.GuideContentType
@@ -31,7 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 /**
  * Guide list screen — shows all recycling guides as scrollable cards.
  *
- * User view  : tap a card to read the full guide.
+ * User view  : tap a card to read the full guide (or open YouTube directly for videos).
  * Driver view: FAB to create a guide; each card has Edit and Delete icons.
  *
  * @param isDriverInDriverView True when a driver is in driver view (shows edit/delete controls).
@@ -52,9 +55,11 @@ fun GuideListScreen(
     val uiState       by viewModel.listUiState.collectAsStateWithLifecycle()
     val deleteSuccess by viewModel.deleteSuccess.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val dateFormat        = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     var searchQuery       by remember { mutableStateOf("") }
+    var selectedFilter    by remember { mutableStateOf<GuideContentType?>(null) }
     var isRefreshing      by remember { mutableStateOf(false) }
 
     // Track which guide the driver wants to delete (null = no dialog open)
@@ -74,7 +79,7 @@ fun GuideListScreen(
             onDismissRequest = { guideToDelete = null },
             title = { Text("Delete Guide?") },
             text  = {
-                Text("Delete \"${guideToDelete!!.title}\"? This cannot be undone and will also remove its images.")
+                Text("Delete \"${guideToDelete!!.title}\"? This cannot be undone.")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -114,84 +119,109 @@ fun GuideListScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            when (val state = uiState) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val state = uiState) {
 
-                is GuideListUiState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-
-                is GuideListUiState.Error -> {
-                    Column(
-                        modifier            = Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Could not load guides", color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = { viewModel.loadGuides() }) { Text("Retry") }
+                    is GuideListUiState.Loading -> {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                     }
-                }
 
-                is GuideListUiState.Success -> {
-                    val filteredGuides = state.guides.filter { guide ->
-                        searchQuery.isBlank() ||
-                                guide.title.contains(searchQuery, ignoreCase = true) ||
-                                guide.contentMarkdown.contains(searchQuery, ignoreCase = true) ||
-                                guide.externalUrl.contains(searchQuery, ignoreCase = true)
-                    }
-                    if (state.guides.isEmpty()) {
-                        // Empty state message
+                    is GuideListUiState.Error -> {
                         Column(
                             modifier            = Modifier
                                 .align(Alignment.Center)
-                                .padding(24.dp),
+                                .padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("📚", style = MaterialTheme.typography.displayMedium)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text  = if (isDriverInDriverView)
-                                    "No guides yet.\nTap + to create the first one."
-                                else
-                                    "No recycling guides available yet.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("Could not load guides", color = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(onClick = { viewModel.loadGuides() }) { Text("Retry") }
                         }
-                    } else {
+                    }
+
+                    is GuideListUiState.Success -> {
+                        val filteredGuides = state.guides.filter { guide ->
+                            val matchesSearch = searchQuery.isBlank() ||
+                                    guide.title.contains(searchQuery, ignoreCase = true) ||
+                                    guide.contentMarkdown.contains(searchQuery, ignoreCase = true)
+                            val matchesFilter = selectedFilter == null || guide.getContentType() == selectedFilter
+                            matchesSearch && matchesFilter
+                        }
+
                         Column(modifier = Modifier.fillMaxSize()) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
+                            // Search and Filter controls
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                label = { Text("Search guides") },
-                                singleLine = true,
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
-                            )
-                            LazyColumn(
-                                modifier            = Modifier.fillMaxSize(),
-                                contentPadding      = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp)
                             ) {
-                                if (filteredGuides.isEmpty()) {
-                                    item {
-                                        Text(
-                                            text = "No guides match your search.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Search guides") },
+                                    singleLine = true,
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = selectedFilter == null,
+                                        onClick = { selectedFilter = null },
+                                        label = { Text("All") }
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilter == GuideContentType.YOUTUBE,
+                                        onClick = { selectedFilter = GuideContentType.YOUTUBE },
+                                        label = { Text("Videos") }
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilter == GuideContentType.MARKDOWN,
+                                        onClick = { selectedFilter = GuideContentType.MARKDOWN },
+                                        label = { Text("Written") }
+                                    )
+                                }
+                            }
+
+                            if (filteredGuides.isEmpty()) {
+                                // No search results or empty state message
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    val emptyMsg = if (state.guides.isEmpty()) {
+                                        if (isDriverInDriverView) "No guides yet. Tap + to create the first one."
+                                        else "No recycling guides available yet."
+                                    } else {
+                                        "No guides match your criteria."
                                     }
-                                } else {
+                                    Text(
+                                        text = emptyMsg,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier            = Modifier.fillMaxSize(),
+                                    contentPadding      = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
                                     items(filteredGuides, key = { it.id }) { guide ->
                                         GuideListCard(
                                             guide                = guide,
                                             isDriverInDriverView = isDriverInDriverView,
                                             dateFormat           = dateFormat,
-                                            onClick              = { onNavigateToDetail(guide.id) },
+                                            onClick              = {
+                                                if (guide.getContentType() == GuideContentType.YOUTUBE) {
+                                                    val videoId = guide.externalUrl.trim()
+                                                    val intent = Intent(Intent.ACTION_VIEW, "https://www.youtube.com/watch?v=$videoId".toUri())
+                                                    context.startActivity(intent)
+                                                } else {
+                                                    onNavigateToDetail(guide.id)
+                                                }
+                                            },
                                             onEdit               = { onNavigateToEditorEdit(guide.id) },
                                             onDelete             = { guideToDelete = guide }
                                         )
@@ -202,7 +232,6 @@ fun GuideListScreen(
                     }
                 }
             }
-        }
         }
         LaunchedEffect(isRefreshing) {
             if (isRefreshing) {
@@ -217,7 +246,6 @@ fun GuideListScreen(
 // GuideListCard — one card shown in the guide list
 // =====================================================================
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GuideListCard(
     guide: RecyclingGuide,
@@ -236,6 +264,7 @@ private fun GuideListCard(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // 1. Multimedia section (Image or YouTube Thumbnail)
             when (guide.getContentType()) {
                 GuideContentType.MARKDOWN -> if (guide.imageUrls.isNotEmpty()) {
                     LazyRow(
@@ -245,7 +274,7 @@ private fun GuideListCard(
                         items(guide.imageUrls) { imageUrl ->
                             AsyncImage(
                                 model = imageUrl,
-                                contentDescription = "Guide image",
+                                contentDescription = null,
                                 modifier = Modifier
                                     .fillParentMaxWidth()
                                     .height(170.dp),
@@ -256,9 +285,10 @@ private fun GuideListCard(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
                 GuideContentType.YOUTUBE -> {
-                    if (isValidYoutubeVideoId(guide.externalUrl.trim())) {
+                    val videoId = guide.externalUrl.trim()
+                    if (isValidYoutubeVideoId(videoId)) {
                         AsyncImage(
-                            model = "https://img.youtube.com/vi/${guide.externalUrl.trim()}/0.jpg",
+                            model = "https://img.youtube.com/vi/$videoId/0.jpg",
                             contentDescription = "YouTube thumbnail",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -270,25 +300,9 @@ private fun GuideListCard(
                 }
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SuggestionChip(
-                    onClick = onClick,
-                    label = {
-                        Text(
-                            when (guide.getContentType()) {
-                                GuideContentType.MARKDOWN -> "📝 Markdown"
-                                GuideContentType.YOUTUBE -> "🎥 YouTube"
-                            }
-                        )
-                    }
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+            // Note: Indicators near top (YouTube/Markdown) and "Posted by" removed per request.
 
-            // Title row + action buttons
+            // 2. Title row + action buttons
             Row(
                 modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top
@@ -302,20 +316,20 @@ private fun GuideListCard(
                         maxLines   = 2,
                         overflow   = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // 2-line preview: strip Markdown headers so the preview reads cleanly
-                    val preview = remember(guide.contentMarkdown, guide.externalUrl, guide.contentType) {
-                        when (guide.getContentType()) {
-                            GuideContentType.MARKDOWN -> guide.contentMarkdown
+                    
+                    // Preview text: only shown for Markdown (video id text removed for YouTube)
+                    val preview = remember(guide.contentMarkdown, guide.getContentType()) {
+                        if (guide.getContentType() == GuideContentType.MARKDOWN) {
+                            guide.contentMarkdown
                                 .lines()
                                 .filter { line -> line.isNotBlank() && !line.startsWith("#") }
                                 .joinToString(" ")
                                 .take(130)
-                            GuideContentType.YOUTUBE -> "Video ID: ${guide.externalUrl}"
-                        }
+                        } else ""
                     }
+                    
                     if (preview.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text     = preview,
                             style    = MaterialTheme.typography.bodySmall,
@@ -324,12 +338,6 @@ private fun GuideListCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Posted by driver",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
 
                 // Edit / Delete buttons — driver view only
@@ -353,19 +361,12 @@ private fun GuideListCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Bottom row: image badge + updated date
+            // 3. Bottom row: Updated date (Image count indicator removed per request)
             Row(
                 modifier              = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment     = Alignment.CenterVertically
             ) {
-                if (guide.getContentType() == GuideContentType.MARKDOWN && guide.imageUrls.isNotEmpty()) {
-                    SuggestionChip(onClick = onClick, label = {
-                        Text("🖼️ ${guide.imageUrls.size} image${if (guide.imageUrls.size != 1) "s" else ""}")
-                    })
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp)) // keeps the date right-aligned
-                }
                 Text(
                     text  = "Updated ${dateFormat.format(guide.updatedAt.toDate())}",
                     style = MaterialTheme.typography.labelSmall,
