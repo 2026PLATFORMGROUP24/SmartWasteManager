@@ -86,7 +86,6 @@ fun AskAiScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(currentUserId) {
-        // init() also performs the device-support check internally
         if (currentUserId.isNotBlank()) viewModel.init(currentUserId)
     }
 
@@ -170,8 +169,7 @@ fun AskAiScreen(
                 AskAiScreenMode.LANDING -> LandingStage(
                     uiState   = uiState,
                     onScanNew = { viewModel.showCamera() },
-                    onViewHistory = { viewModel.showHistory() },
-                    onStartDownload = { viewModel.startDownload() }
+                    onViewHistory = { viewModel.showHistory() }
                 )
 
                 // ── Camera ───────────────────────────────────────────────────
@@ -270,54 +268,8 @@ fun AskAiScreen(
 private fun LandingStage(
     uiState: AskAiUiState,
     onScanNew: () -> Unit,
-    onViewHistory: () -> Unit,
-    onStartDownload: () -> Unit
+    onViewHistory: () -> Unit
 ) {
-    // ── Unsupported device ─────────────────────────────────────────────────
-    if (!uiState.isDeviceSupported) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            "Feature Not Supported",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "The AI Assistant requires Android 10 or higher and at least 4 GB of RAM. " +
-                            "This device does not meet the minimum requirements.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-        return
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -347,239 +299,97 @@ private fun LandingStage(
         )
         Spacer(modifier = Modifier.height(32.dp))
 
-        // ── Model error ────────────────────────────────────────────────────
-        if (uiState.modelError != null) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.ErrorOutline, null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        uiState.modelError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ── Download consent card ──────────────────────────────────────────
-        if (!uiState.isModelReady && !uiState.isModelInitializing &&
-            !uiState.isModelDownloading && !uiState.downloadStarted
+        // Scan new item card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onScanNew),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            Row(
+                modifier = Modifier.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = CircleShape,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            Icons.Default.Download, null,
-                            tint = MaterialTheme.colorScheme.secondary,
+                            Icons.Default.CameraAlt, null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(24.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            "AI Model Required",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "This feature uses a local AI model (~400 MB) stored on your device. " +
-                        "The download is a one-time setup and works offline after that.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = onStartDownload,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Download AI Model (~400 MB)")
                     }
                 }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ── Download progress ──────────────────────────────────────────────
-        if (uiState.isModelDownloading) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            "Downloading AI Model…",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "${uiState.modelDownloadProgress}%",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    LinearProgressIndicator(
-                        progress = { uiState.modelDownloadProgress / 100f },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
                     Text(
-                        "Please keep the app open. This is a one-time download.",
+                        "Scan New Item",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Take a photo or pick from gallery",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
                 }
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(Icons.Default.ChevronRight, contentDescription = null)
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── Model initialising ─────────────────────────────────────────────
-        if (uiState.isModelInitializing) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // History card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onViewHistory),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    color = MaterialTheme.colorScheme.secondary,
+                    shape = CircleShape,
+                    modifier = Modifier.size(48.dp)
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.History, null,
+                            tint = MaterialTheme.colorScheme.onSecondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
                     Text(
-                        "Loading AI model into memory…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "Chat History",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (uiState.chatHistory.isNotEmpty())
+                            "${uiState.chatHistory.size} past conversation${if (uiState.chatHistory.size == 1) "" else "s"}"
+                        else "No conversations yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                     )
                 }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ── Normal action cards (only shown when model is ready) ───────────
-        if (uiState.isModelReady) {
-            // Scan new item card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onScanNew),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = CircleShape,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.CameraAlt, null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            "Scan New Item",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Take a photo or pick from gallery",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.ChevronRight, contentDescription = null)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // History card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onViewHistory),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondary,
-                        shape = CircleShape,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.History, null,
-                                tint = MaterialTheme.colorScheme.onSecondary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            "Chat History",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            if (uiState.chatHistory.isNotEmpty())
-                                "${uiState.chatHistory.size} past conversation${if (uiState.chatHistory.size == 1) "" else "s"}"
-                            else "No conversations yet",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.ChevronRight, contentDescription = null)
-                }
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(Icons.Default.ChevronRight, contentDescription = null)
             }
         }
     }
@@ -1281,10 +1091,6 @@ private fun ChatStage(
                 }
             }
         }
-
-        // ── Reset button ──────────────────────────────────────────────────
-        // Removed: "Scan New Item" button cluttered the bottom of the screen.
-        // Users can scan a new item by pressing the back arrow in the top bar.
     }
 
     // Edit label dialog

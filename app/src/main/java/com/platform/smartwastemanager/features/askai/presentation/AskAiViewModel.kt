@@ -1,21 +1,15 @@
 package com.platform.smartwastemanager.features.askai.presentation
 
-import android.app.ActivityManager
 import android.app.Application
-import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.platform.smartwastemanager.features.askai.data.AiChat
 import com.platform.smartwastemanager.features.askai.data.AiChatRepository
-import com.platform.smartwastemanager.features.askai.data.ModelDownloadManager
-import com.platform.smartwastemanager.features.askai.data.ModelDownloadState
 import com.platform.smartwastemanager.features.askai.data.SmolLmRepository
 import com.platform.smartwastemanager.features.report.domain.WasteImageClassifier
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,15 +54,8 @@ data class AskAiUiState(
     val screenMode: AskAiScreenMode = AskAiScreenMode.LANDING,
 
     // ── Model state ─────────────────────────────────────────────────────────
-    /** False when the device doesn't meet minimum requirements (API 29 + 4 GB RAM). */
-    val isDeviceSupported: Boolean = true,
-    val isModelReady: Boolean = false,
-    /** True while LlmInference.createFromOptions() is running in the background. */
-    val isModelInitializing: Boolean = false,
-    val isModelDownloading: Boolean = false,
-    val modelDownloadProgress: Int = 0,
-    /** True once the user has tapped "Download" — suppresses the consent card. */
-    val downloadStarted: Boolean = false,
+    /** Vertex AI (cloud) is always considered ready. */
+    val isModelReady: Boolean = true,
 
     // ── Errors ───────────────────────────────────────────────────────────────
     val error: String? = null,
@@ -79,8 +66,7 @@ class AskAiViewModel(
     application: Application,
     private val aiChatRepository: AiChatRepository,
     private val classifier: WasteImageClassifier,
-    private val smolLmRepository: SmolLmRepository,
-    private val modelDownloadManager: ModelDownloadManager
+    private val smolLmRepository: SmolLmRepository
 ) : AndroidViewModel(application) {
 
     private val TAG = "AskAiViewModel"
@@ -106,86 +92,12 @@ class AskAiViewModel(
         if (currentUserId == userId) return
         currentUserId = userId
 
-        val supported = checkDeviceSupport()
-        // Vertex AI works on any device — mark supported + ready immediately,
-        // suppress the old "download model" consent card by setting downloadStarted = true.
+        // AI Assistant uses cloud inference; model is always ready.
         _uiState.value = _uiState.value.copy(
-            isDeviceSupported = supported,
-            isModelReady = true,
-            downloadStarted = true
+            isModelReady = true
         )
 
-        if (!supported) return
-
         loadChatHistory()
-    }
-
-    /** Checks that the device runs Android 10+ and has at least 4 GB RAM. */
-    private fun checkDeviceSupport(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
-        val am = getApplication<Application>()
-            .getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memInfo = ActivityManager.MemoryInfo()
-        am.getMemoryInfo(memInfo)
-        val totalRamGb = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
-        return totalRamGb >= 4.0
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Model download & initialisation
-    // ──────────────────────────────────────────────────────────────────────────
-
-    /** Called when the user taps the "Download AI Model" consent button. */
-    fun startDownload() {
-        _uiState.value = _uiState.value.copy(downloadStarted = true)
-        viewModelScope.launch {
-            modelDownloadManager.downloadModel().collect { state ->
-                when (state) {
-                    is ModelDownloadState.Idle -> Unit
-                    is ModelDownloadState.Downloading -> {
-                        _uiState.value = _uiState.value.copy(
-                            isModelDownloading = true,
-                            modelDownloadProgress = state.progress,
-                            modelError = null
-                        )
-                    }
-                    is ModelDownloadState.Ready -> {
-                        _uiState.value = _uiState.value.copy(
-                            isModelDownloading = false,
-                            modelDownloadProgress = 100
-                        )
-                        initializeModel(state.path)
-                    }
-                    is ModelDownloadState.Error -> {
-                        _uiState.value = _uiState.value.copy(
-                            isModelDownloading = false,
-                            downloadStarted = false, // allow retry
-                            modelError = state.message
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private fun initializeModel(modelPath: String) {
-        _uiState.value = _uiState.value.copy(isModelInitializing = true)
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                smolLmRepository.initialize(getApplication(), modelPath)
-                _uiState.value = _uiState.value.copy(
-                    isModelInitializing = false,
-                    isModelReady = true
-                )
-                Log.d(TAG, "Model ready")
-            } catch (e: Exception) {
-                Log.e(TAG, "Model initialisation failed", e)
-                _uiState.value = _uiState.value.copy(
-                    isModelInitializing = false,
-                    modelError = "Failed to load AI model: ${e.message}"
-                )
-            }
-        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -375,7 +287,7 @@ class AskAiViewModel(
                 )
             }
 
-            // 2. Stream tokens from on-device model
+            // 2. Stream tokens from cloud model
             val fullResponse = StringBuilder()
             try {
                 smolLmRepository
@@ -389,7 +301,7 @@ class AskAiViewModel(
 
                 val finalText = fullResponse.toString().trim()
 
-                // 3. Persist AI response & update fallback
+                // 3. Persist AI response
                 if (chat != null) {
                     aiChatRepository.addMessage(
                         chat.chatId, "ai", finalText, incrementPromptCount = false
@@ -513,8 +425,7 @@ class AskAiViewModel(
                     application        = application,
                     aiChatRepository   = aiChatRepository,
                     classifier         = classifier,
-                    smolLmRepository   = SmolLmRepository(),
-                    modelDownloadManager = ModelDownloadManager(application)
+                    smolLmRepository   = SmolLmRepository()
                 ) as T
         }
     }
