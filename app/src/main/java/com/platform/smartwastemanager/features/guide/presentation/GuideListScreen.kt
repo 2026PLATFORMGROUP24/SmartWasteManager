@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
@@ -41,6 +42,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
  * @param onNavigateToDetail   Navigate to the detail screen for the tapped guide.
  * @param onNavigateToEditor   Navigate to the editor in create mode.
  * @param onNavigateToEditorEdit Navigate to the editor in edit mode for the given guide ID.
+ * @param onNavigateToAskAi    Navigate to the Ask AI feature.
  */
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,7 +52,8 @@ fun GuideListScreen(
     isDriverInDriverView: Boolean,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToEditor: () -> Unit,
-    onNavigateToEditorEdit: (String) -> Unit
+    onNavigateToEditorEdit: (String) -> Unit,
+    onNavigateToAskAi: () -> Unit
 ) {
     val uiState       by viewModel.listUiState.collectAsStateWithLifecycle()
     val deleteSuccess by viewModel.deleteSuccess.collectAsStateWithLifecycle()
@@ -167,7 +170,9 @@ fun GuideListScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     FilterChip(
                                         selected = selectedFilter == null,
@@ -183,6 +188,21 @@ fun GuideListScreen(
                                         selected = selectedFilter == GuideContentType.MARKDOWN,
                                         onClick = { selectedFilter = GuideContentType.MARKDOWN },
                                         label = { Text("Written") }
+                                    )
+
+                                    Spacer(modifier = Modifier.weight(1f))
+
+                                    AssistChip(
+                                        onClick = onNavigateToAskAi,
+                                        label = { Text("Ask AI") },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     )
                                 }
                             }

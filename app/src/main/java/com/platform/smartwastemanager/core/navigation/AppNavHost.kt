@@ -292,7 +292,8 @@ fun AppNavHost(
                 onNavigateToEditor     = { navController.navigate(Routes.GUIDE_EDITOR) },
                 onNavigateToEditorEdit = { guideId ->
                     navController.navigate(Routes.buildGuideEditor(guideId))
-                }
+                },
+                onNavigateToAskAi      = { navController.navigate(Routes.ASK_AI) }
             )
         }
 
@@ -312,14 +313,33 @@ fun AppNavHost(
             )
         }
 
+        // ======================== NOTIFICATIONS ========================
+
+        composable(Routes.NOTIFICATIONS) {
+            NotificationScreen(
+                viewModel      = notificationViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // ======================== ASK AI ========================
+
+        composable(Routes.ASK_AI) {
+            AskAiScreen(
+                viewModel = askAiViewModel,
+                currentUserId = currentUser?.uid ?: "",
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // GUIDE EDITOR routes (missing or moved below for clarity)
         composable(Routes.GUIDE_EDITOR) {
             GuideEditorScreen(
                 viewModel      = guideViewModel,
                 guideId        = null,
                 currentUserUid = currentUser?.uid ?: "",
                 onNavigateBack = { navController.popBackStack() },
-                onSaveSuccess  = { newId ->
-                    // Navigate to guides list instead of detail
+                onSaveSuccess  = { _ ->
                     navController.navigate(Routes.GUIDES) {
                         popUpTo(Routes.GUIDE_EDITOR) { inclusive = true }
                     }
@@ -342,25 +362,6 @@ fun AppNavHost(
                         popUpTo(Routes.buildGuideEditor(guideId)) { inclusive = true }
                     }
                 }
-            )
-        }
-
-        // ======================== NOTIFICATIONS ========================
-
-        composable(Routes.NOTIFICATIONS) {
-            NotificationScreen(
-                viewModel      = notificationViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        // ======================== ASK AI ========================
-
-        composable(Routes.ASK_AI) {
-            AskAiScreen(
-                viewModel = askAiViewModel,
-                currentUserId = currentUser?.uid ?: "",
-                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

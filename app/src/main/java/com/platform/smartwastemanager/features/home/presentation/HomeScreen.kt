@@ -739,6 +739,18 @@ private fun DriverScheduleCard(
                     if (!schedule.collectionTimeRange.isNullOrBlank()) {
                         Text("🕐 ${schedule.collectionTimeRange}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
                     }
+
+                    // Show "Ends in" timer when schedule has started
+                    val isScheduleStarted = isToday && startTime != null && !nowTime.isBefore(startTime) && !isPassed
+                    if (isScheduleStarted && endTime != null) {
+                        val scheduleEnd = targetDate.atTime(endTime)
+                        val duration = Duration.between(currentDateTime, scheduleEnd)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                            Icon(Icons.Default.Timer, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Ends in ${formatDuration(duration)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
                 Icon(Icons.Default.Map, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             }
@@ -777,17 +789,11 @@ private fun DriverScheduleCard(
                 enabled = isOpen && selectedZone != null
             ) {
                 val scheduleStart = targetDate.atTime(startTime ?: LocalTime.MIN)
-                val scheduleEnd = endTime?.let { targetDate.atTime(it) } ?: targetDate.atTime(LocalTime.MAX)
-                
                 val nextStart = if (isPassed) scheduleStart.plusWeeks(1) else scheduleStart
-                val nextEnd = if (isPassed) scheduleEnd.plusWeeks(1) else scheduleEnd
 
                 val timerText = when {
-                    isOpen -> {
-                        if (endTime != null) "Ends in ${formatDuration(Duration.between(currentDateTime, nextEnd))}"
-                        else "Calculate Route"
-                    }
-                    currentDateTime.isBefore(nextStart) -> "Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"
+                    isOpen -> "Calculate Route"
+                    currentDateTime.isBefore(nextStart) -> "Schedule Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"
                     else -> "Calculate Route"
                 }
                 
