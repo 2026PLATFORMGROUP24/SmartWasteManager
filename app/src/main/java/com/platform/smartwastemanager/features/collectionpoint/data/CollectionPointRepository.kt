@@ -42,21 +42,7 @@ class CollectionPointRepository {
 
                 if (snapshot != null) {
                     val list = snapshot.documents.mapNotNull { doc ->
-                        try {
-                            CollectionPoint(
-                                id = doc.id,
-                                userId = doc.getString("userId") ?: "",
-                                name = doc.getString("name") ?: "",
-                                location = doc.getGeoPoint("location") ?: GeoPoint(0.0, 0.0),
-                                streetName = doc.getString("streetName") ?: "",
-                                zoneId = doc.getString("zoneId") ?: "",
-                                markedForCollectionDays = (doc.get("markedForCollectionDays") as? List<*>)
-                                    ?.filterIsInstance<String>() ?: emptyList(),
-                                createdAt = doc.getTimestamp("createdAt") ?: Timestamp.now()
-                            )
-                        } catch (_: Exception) {
-                            null
-                        }
+                        doc.toCollectionPoint()
                     }
                     trySend(list)
                 }
@@ -80,21 +66,7 @@ class CollectionPointRepository {
 
                 if (snapshot != null) {
                     val list = snapshot.documents.mapNotNull { doc ->
-                        try {
-                            CollectionPoint(
-                                id = doc.id,
-                                userId = doc.getString("userId") ?: "",
-                                name = doc.getString("name") ?: "",
-                                location = doc.getGeoPoint("location") ?: GeoPoint(0.0, 0.0),
-                                streetName = doc.getString("streetName") ?: "",
-                                zoneId = doc.getString("zoneId") ?: "",
-                                markedForCollectionDays = (doc.get("markedForCollectionDays") as? List<*>)
-                                    ?.filterIsInstance<String>() ?: emptyList(),
-                                createdAt = doc.getTimestamp("createdAt") ?: Timestamp.now()
-                            )
-                        } catch (_: Exception) {
-                            null
-                        }
+                        doc.toCollectionPoint()
                     }
                     trySend(list)
                 }
@@ -199,17 +171,6 @@ class CollectionPointRepository {
         }
     }
 
-    suspend fun getPointById(pointId: String): CollectionPoint? {
-        return try {
-            val doc = collection.document(pointId).get().await()
-            val ownerUid = auth.currentUser?.uid ?: return null
-            if (!doc.exists() || doc.getString("userId") != ownerUid) return null
-            doc.toCollectionPoint()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     /**
      * Deletes a collection point.
      */
@@ -227,7 +188,16 @@ class CollectionPointRepository {
         }
     }
 
+    suspend fun getPointById(pointId: String): CollectionPoint? {
+        return try {
+            collection.document(pointId).get().await().toCollectionPoint()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun DocumentSnapshot.toCollectionPoint(): CollectionPoint? {
+        if (!exists()) return null
         return try {
             CollectionPoint(
                 id = id,

@@ -170,7 +170,26 @@ class MapRepository {
             "radiusMeters" to zone.radiusMeters,
             "createdBy"    to zone.createdBy
         )
-        return firestore.collection("route_zones").add(data).await().id
+        val zoneId = firestore.collection("route_zones").add(data).await().id
+        
+        // Auto-assign existing collection points to this new zone if they are within radius
+        try {
+            val points = firestore.collection("collection_points").get().await()
+            points.documents.forEach { doc ->
+                val gp = doc.getGeoPoint("location")
+                if (gp != null) {
+                    val distance = haversineDistanceMeters(
+                        zone.centerLat, zone.centerLng,
+                        gp.latitude, gp.longitude
+                    )
+                    if (distance <= zone.radiusMeters) {
+                        doc.reference.update("zoneId", zoneId).await()
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        
+        return zoneId
     }
 
     suspend fun deleteZone(zoneId: String) {
@@ -190,28 +209,6 @@ class MapRepository {
     /**
      * Calculates the optimised collection route for [zone], starting from the
      * driver's current position ([driverLat], [driverLng]).
-     *
-     * How it works:
-     *   1. Fetch all pending Regular Pickup reports inside the zone radius whose
-     *      [category] matches one of the [scheduleCategories] for the day.
-     *      If [scheduleCategories] is empty, ALL categories are included (fallback).
-     *   2. Pre-sort stops by straight-line (haversine) distance from the driver so
-     *      stop[0] is ALWAYS the geographically nearest — this is the reliable
-     *      nearest-first guarantee that does not depend on OSRM.
-     *   3. Prepend the driver's location as coordinate index 0 in the OSRM /trip
-     *      call with source=first, so OSRM routes driver → all stops in optimal order.
-     *   4. Pass approaches=curb for every waypoint so OSRM always routes to the
-     *      kerb/left side of the road — prevents the "wrong side of the road" problem.
-     *   5. Re-order stops using the waypoint_index values OSRM returns.
-     *   6. Decode the road-following GeoJSON geometry polyline.
-     *
-     * Falls back to the haversine-sorted stop list with no polyline if OSRM is
-     * unreachable or returns a non-Ok response.
-     *
-     * @param scheduleDayId       Schedule day document id used to fetch category filters and
-     *                            collection points marked ready for this schedule day.
-     * @param driverLat           Driver's current latitude  (0.0 = unavailable).
-     * @param driverLng           Driver's current longitude (0.0 = unavailable).
      */
     suspend fun calculateRouteForZone(
         zone: Zone,
@@ -258,12 +255,10 @@ class MapRepository {
         }
 
         // Filter by the schedule day's waste categories.
-        // If scheduleCategories is empty (safety fallback), keep all stops.
         val filteredStops = if (scheduleCategories.isEmpty()) {
             stopsInZone
         } else {
             stopsInZone.filter { stop ->
-                // Case-insensitive match so minor formatting differences don't break routing
                 scheduleCategories.any { cat ->
                     cat.equals(stop.category, ignoreCase = true)
                 }
@@ -285,8 +280,6 @@ class MapRepository {
                         RouteStop(
                             reportId   = doc.id,
                             location   = gp,
-                            // Show only the street address — never the user-assigned name
-                            // (names like "HOME" must not be visible to drivers for privacy)
                             streetName = doc.getString("streetName")
                                 ?.takeIf { it.isNotBlank() }
                                 ?: "Unknown Street",
@@ -305,8 +298,6 @@ class MapRepository {
 
         val hasDriverLocation = driverLat != 0.0 || driverLng != 0.0
 
-        // --- 2. Pre-sort stops by haversine distance from the driver (or zone centre).
-        //        This is the reliable nearest-first guarantee that does not depend on OSRM.
         val originLat = if (hasDriverLocation) driverLat else zone.centerLat
         val originLng = if (hasDriverLocation) driverLng else zone.centerLng
         val nearestFirstStops = combinedStops.sortedBy { stop ->
@@ -316,18 +307,11 @@ class MapRepository {
             )
         }
 
-        // --- 3. Build OSRM coordinate string.
-        //        Prepend driver location as coordinate[0] if available (source=first).
         val coordsList = buildList {
-            if (hasDriverLocation) add("$driverLng,$driverLat")   // index 0 = driver
+            if (hasDriverLocation) add("$driverLng,$driverLat")
             addAll(nearestFirstStops.map { "${it.location.longitude},${it.location.latitude}" })
         }
         val coords = coordsList.joinToString(";")
-
-        // --- 4. Build the approaches parameter.
-        //        "curb" tells OSRM to always approach from the left-hand side of the road
-        //        (the kerb), preventing the "wrong side of the road" routing bug.
-        //        One "curb" entry is needed per coordinate, including the driver origin.
         val approaches = coordsList.indices.joinToString(";") { "curb" }
 
         return try {
@@ -340,18 +324,11 @@ class MapRepository {
             )
 
             if (resp.code == "Ok" && resp.waypoints.isNotEmpty()) {
-
-                // OSRM returns waypoints in INPUT order.
-                // waypointIndex = optimised visit position in the trip (0-based).
-                // With hasDriverLocation=true the driver gets waypointIndex 0 (source=first).
-                // We drop the driver waypoint then sort stops by waypointIndex.
                 val driverOffset  = if (hasDriverLocation) 1 else 0
                 val stopWaypoints = resp.waypoints.drop(driverOffset)
 
                 val orderedStops = nearestFirstStops
                     .mapIndexed { i, stop ->
-                        // waypointIndex is 1-based for stops when driverOffset=1.
-                        // Subtract driverOffset to make it 0-based for sorting.
                         val visitPosition = (stopWaypoints.getOrNull(i)?.waypointIndex
                             ?: (i + driverOffset)) - driverOffset
                         visitPosition to stop
@@ -359,7 +336,6 @@ class MapRepository {
                     .sortedBy { it.first }
                     .map { it.second }
 
-                // Decode the road-following GeoJSON polyline (coordinates = [lng, lat])
                 val roadPolyline = resp.trips.firstOrNull()
                     ?.geometry
                     ?.coordinates
@@ -368,29 +344,20 @@ class MapRepository {
                     } ?: emptyList()
 
                 RouteResult(stops = orderedStops, roadPolyline = roadPolyline)
-
             } else {
-                // OSRM gave a non-Ok response — use our haversine nearest-first list.
                 RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
             }
-
         } catch (e: Exception) {
-            // Network/parse failure — haversine nearest-first is the safe fallback.
             RouteResult(stops = nearestFirstStops, roadPolyline = emptyList())
         }
     }
 
-    /**
-     * Fetches turn-by-turn driving directions from the driver to a single stop.
-     * Returns an empty list on any failure — the UI handles this gracefully.
-     */
     suspend fun getDirectionsToStop(
         fromLat: Double, fromLng: Double,
         toLat: Double,   toLng: Double
     ): TurnByTurnNavigation {
         return try {
             val coords   = "$fromLng,$fromLat;$toLng,$toLat"
-            // approaches=curb;curb — approach both the origin and destination from the kerb side
             val response = osrmService.getRoute(
                 coordinates = coords,
                 steps       = true,
@@ -439,7 +406,6 @@ class MapRepository {
                 ?.geometry
                 ?.coordinates
                 ?.mapNotNull { coord ->
-                    // OSRM returns [longitude, latitude], but Google LatLng expects [latitude, longitude].
                     if (coord.size >= 2) LatLng(coord[1], coord[0]) else null
                 }.orEmpty()
         } catch (_: Exception) {
@@ -479,10 +445,6 @@ class MapRepository {
         return if (road.isNotBlank()) "$action onto $road ($distStr)" else "$action ($distStr)"
     }
 
-    /**
-     * Calculates an optimised collection route for a pre-filtered list of [MapPin]s.
-     * Mirrors the logic in calculateRouteForZone but skips all zone/schedule filtering.
-     */
     suspend fun calculateRouteForPins(
         pins: List<MapPin>,
         driverLat: Double = 0.0,
@@ -570,15 +532,11 @@ class MapRepository {
                 cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2).pow(2)
         return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
-    // REPLACE lines 380-416 with this corrected version:
+
     fun getZones(): Flow<List<Zone>> = callbackFlow {
         val listener = firestore.collection("route_zones")
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
                 if (snapshot != null) {
                     val zones = snapshot.documents.mapNotNull { doc ->
                         try {
@@ -590,14 +548,11 @@ class MapRepository {
                                 radiusMeters = doc.getDouble("radiusMeters") ?: 1000.0,
                                 createdBy = doc.getString("createdBy") ?: ""
                             )
-                        } catch (e: Exception) {
-                            null
-                        }
+                        } catch (e: Exception) { null }
                     }
                     trySend(zones)
                 }
             }
-
         awaitClose { listener.remove() }
     }.catch { emit(emptyList()) }
 }

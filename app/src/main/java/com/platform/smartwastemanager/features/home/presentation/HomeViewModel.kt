@@ -71,7 +71,14 @@ class HomeViewModel(
                         _selectedPoint.value?.let { currentSelected ->
                             val updated = list.find { it.id == currentSelected.id }
                             if (updated != null) {
+                                val oldZoneId = currentSelected.zoneId
                                 _selectedPoint.value = updated // This refreshes the marked status
+                                
+                                // FIX: If a zone was assigned (zoneId changed from empty to something),
+                                // or if schedules weren't loaded but we have a zoneId now, load them.
+                                if (updated.zoneId.isNotBlank() && (oldZoneId != updated.zoneId || _schedules.value.isEmpty())) {
+                                    loadSchedulesForZone(updated.zoneId)
+                                }
                             } else {
                                 // Current selected point no longer exists (user switched accounts)
                                 _selectedPoint.value = null
@@ -278,6 +285,15 @@ class HomeViewModel(
                 HomeUiState.Success("Schedule deleted")
             else
                 HomeUiState.Error(result.exceptionOrNull()?.message ?: "Failed to delete schedule")
+        }
+    }
+
+    fun toggleScheduleManualEnable(scheduleId: String, isEnabled: Boolean) {
+        viewModelScope.launch {
+            val result = scheduleRepository.toggleManualEnable(scheduleId, isEnabled)
+            if (result.isFailure) {
+                _uiState.value = HomeUiState.Error("Failed to update schedule")
+            }
         }
     }
 

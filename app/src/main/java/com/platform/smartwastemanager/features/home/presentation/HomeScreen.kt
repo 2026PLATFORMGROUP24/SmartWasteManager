@@ -116,8 +116,9 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 if (isDriver && isDriverViewActive) {
+                    val title = if (selectedZone != null) "Schedule: ${selectedZone?.name}" else "Collection Schedule: Driver"
                     Text(
-                        text       = "Collection Schedule: Driver",
+                        text       = title,
                         style      = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -154,7 +155,11 @@ fun HomeScreen(
                         schedules         = schedules,
                         onSelectZone      = { viewModel.selectZone(it) },
                         onNavigateToManageZones = onNavigateToManageZones,
-                        onCalculateRoute  = onCalculateRoute
+                        onCalculateRoute  = onCalculateRoute,
+                        onToggleManualEnable = { scheduleId, isEnabled ->
+                            viewModel.toggleScheduleManualEnable(scheduleId, isEnabled)
+                        },
+                        currentDateTime = currentDateTime
                     )
                 }
             }
@@ -349,11 +354,12 @@ private fun UserScheduleCard(
     // A day is passed if it was before today, or it's today and the end time has passed
     val isToday = daysDiff == 0L
     val isPassed = daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
-    
+
     // Logic for enabling "Ready for Collection":
     // - Enabled if it is TODAY (and not passed)
     // - Enabled for TOMORROW (daysDiff == 1) if current time is after 4 PM today
-    val isEnabled = when {
+    // - MANUALLY ENABLED by driver
+    val isEnabled = schedule.isManuallyEnabled || when {
         isPassed -> false
         isToday -> true
         daysDiff == 1L -> nowTime.hour >= 16
@@ -362,12 +368,8 @@ private fun UserScheduleCard(
 
     val isMarked = selectedPoint?.markedForCollectionDays?.contains(schedule.id) == true
 
-    val badgeText = when {
-        isToday -> if (isPassed) "PASSED" else "TODAY"
-        daysDiff == 1L -> "TOMORROW"
-        daysDiff > 1L -> "IN $daysDiff DAYS"
-        else -> "PASSED"
-    }
+    // Badge only for the current calendar day
+    val badgeText = if (isToday) "TODAY" else null
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -384,7 +386,7 @@ private fun UserScheduleCard(
         modifier  = Modifier
             .fillMaxWidth()
             .then(
-                if (isToday && !isPassed) Modifier.border(
+                if (isToday) Modifier.border(
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
                     shape = MaterialTheme.shapes.medium
                 ) else Modifier
@@ -395,25 +397,25 @@ private fun UserScheduleCard(
         colors    = CardDefaults.cardColors(
             containerColor = when {
                 isToday && isMarked -> MaterialTheme.colorScheme.primaryContainer
-                isToday && !isPassed -> MaterialTheme.colorScheme.tertiaryContainer
+                isToday -> MaterialTheme.colorScheme.tertiaryContainer
                 isMarked -> Color(0xFF4CAF50).copy(alpha = 0.15f)
                 else -> MaterialTheme.colorScheme.secondaryContainer
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday && !isPassed) 6.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 6.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(schedule.dayOfWeek, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        badgeText.let { badge ->
+                        badgeText?.let { badge ->
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = if (isToday && !isPassed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                color = MaterialTheme.colorScheme.primary,
                                 shape = MaterialTheme.shapes.small
                             ) {
-                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = if (isToday && !isPassed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                             }
                         }
                     }
@@ -464,29 +466,23 @@ private fun UserScheduleCard(
                         OutlinedButton(
                             onClick = { onUnmarkFromCollection(selectedPoint.id, schedule.id) },
                             modifier = Modifier.weight(1f),
-                            enabled = !isPassed
+                            enabled = !isPassed || schedule.isManuallyEnabled
                         ) { Text("Unmark") }
                     } else {
-                        val buttonText = when {
-                            isEnabled -> "Ready for Collection"
-                            isPassed -> "Collection Ended"
-                            daysDiff == 1L && nowTime.hour < 16 -> {
-                                val openTime = LocalTime.of(16, 0)
-                                val duration = Duration.between(nowTime, openTime)
-                                "Opens in ${formatDuration(duration)}"
+                        val buttonText = if (isEnabled) {
+                            "Ready for Collection"
+                        } else {
+                            // Find the next open date-time
+                            val baseOpenDateTime = targetDate.minusDays(1).atTime(16, 0)
+                            val nextOpenDateTime = if (isPassed) {
+                                baseOpenDateTime.plusWeeks(1)
+                            } else {
+                                baseOpenDateTime
                             }
-                            daysDiff >= 1L -> {
-                                // Countdown to 4 PM of the day BEFORE the schedule day
-                                val openDateTime = targetDate.minusDays(1).atTime(16, 0)
-                                if (currentDateTime.isBefore(openDateTime)) {
-                                    val duration = Duration.between(currentDateTime, openDateTime)
-                                    "Opens in ${formatDuration(duration)}"
-                                } else {
-                                    "Ready for Collection"
-                                }
-                            }
-                            else -> "Ready for Collection"
+                            val duration = Duration.between(currentDateTime, nextOpenDateTime)
+                            "Opens in ${formatDuration(duration)}"
                         }
+
                         Button(
                             onClick = { onMarkForCollection(selectedPoint.id, schedule.id) },
                             modifier = Modifier.weight(1f),
@@ -506,18 +502,20 @@ private fun UserScheduleCard(
 private fun formatDuration(duration: Duration): String {
     val totalSeconds = duration.seconds
     if (totalSeconds <= 0) return "0 minutes"
-    val hours = totalSeconds / 3600
+    val days = totalSeconds / (3600 * 24)
+    val hours = (totalSeconds % (3600 * 24)) / 3600
     val minutes = (totalSeconds % 3600) / 60
 
     return when {
+        days > 0 -> {
+            val dText = if (days == 1L) "day" else "days"
+            val hText = if (hours == 1L) "hour" else "hours"
+            if (hours > 0) "$days $dText $hours $hText" else "$days $dText"
+        }
         hours > 0 -> {
             val hText = if (hours == 1L) "hour" else "hours"
             val mText = if (minutes == 1L) "minute" else "minutes"
-            if (minutes > 0) {
-                "$hours $hText $minutes $mText"
-            } else {
-                "$hours $hText"
-            }
+            if (minutes > 0) "$hours $hText $minutes $mText" else "$hours $hText"
         }
         else -> {
             val mText = if (minutes == 1L) "minute" else "minutes"
@@ -540,7 +538,9 @@ private fun DriverHomeContent(
     schedules: List<CollectionDay>,
     onSelectZone: (Zone) -> Unit,
     onNavigateToManageZones: () -> Unit,
-    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
+    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit,
+    onToggleManualEnable: (scheduleId: String, isEnabled: Boolean) -> Unit,
+    currentDateTime: LocalDateTime
 ) {
     var expanded by remember { mutableStateOf(false) }
     val activeZone = selectedZone ?: zones.firstOrNull()
@@ -610,8 +610,8 @@ private fun DriverHomeContent(
     } else {
         key(schedules) {
             val scope = rememberCoroutineScope()
-            val today = LocalDate.now().dayOfWeek
-            val todayIndex = remember(schedules) {
+            val today = currentDateTime.toLocalDate().dayOfWeek
+            val todayIndex = remember(schedules, today) {
                 schedules.indexOfFirst { it.dayOfWeek.toDayOfWeekLocal() == today }
             }
             val initialPage = if (todayIndex != -1) todayIndex else 0
@@ -644,7 +644,13 @@ private fun DriverHomeContent(
                         alpha = 0.7f + (1f - 0.7f) * (1f - pageOffset.coerceIn(0f, 1f))
                     }
                 ) {
-                    DriverScheduleCard(schedule = schedules[page], selectedZone = selectedZone, onCalculateRoute = onCalculateRoute)
+                    DriverScheduleCard(
+                        schedule = schedules[page],
+                        selectedZone = selectedZone,
+                        onCalculateRoute = onCalculateRoute,
+                        onToggleManualEnable = onToggleManualEnable,
+                        currentDateTime = currentDateTime
+                    )
                 }
             }
         }
@@ -656,19 +662,41 @@ private fun DriverHomeContent(
 private fun DriverScheduleCard(
     schedule: CollectionDay,
     selectedZone: Zone?,
-    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit
+    onCalculateRoute: (zoneName: String, scheduleDayId: String) -> Unit,
+    onToggleManualEnable: (scheduleId: String, isEnabled: Boolean) -> Unit,
+    currentDateTime: LocalDateTime
 ) {
-    val now = remember { LocalDate.now() }
+    val now = currentDateTime.toLocalDate()
+    val nowTime = currentDateTime.toLocalTime()
     val scheduleDay = remember(schedule.dayOfWeek) { schedule.dayOfWeek.toDayOfWeekLocal() }
-    val collectionDate = remember(scheduleDay, now) { scheduleDay?.let { now.with(TemporalAdjusters.nextOrSame(it)) } }
-    val daysUntilCollection = remember(collectionDate, now) { collectionDate?.let { ChronoUnit.DAYS.between(now, it).toInt() } }
-    val isToday = daysUntilCollection == 0
-    val badgeText = when {
-        isToday -> "TODAY"
-        daysUntilCollection == 1 -> "TOMORROW"
-        daysUntilCollection != null && daysUntilCollection > 1 -> "IN $daysUntilCollection DAYS"
-        else -> null
+    
+    val targetDate = remember(scheduleDay, now) {
+        scheduleDay?.let {
+            val monday = now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            monday.plusDays((it.value - 1).toLong())
+        }
     }
+
+    if (targetDate == null) return
+
+    val daysDiff = ChronoUnit.DAYS.between(now, targetDate)
+    
+    val timeRangeParts = remember(schedule.collectionTimeRange) {
+        schedule.collectionTimeRange?.split("–", "-", "—")?.map { it.trim() }
+    }
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("[H][HH]:mm") }
+    val startTime = remember(timeRangeParts) {
+        timeRangeParts?.getOrNull(0)?.let { try { LocalTime.parse(it, timeFormatter) } catch (e: Exception) { null } }
+    }
+    val endTime = remember(timeRangeParts) {
+        timeRangeParts?.getOrNull(1)?.let { try { LocalTime.parse(it, timeFormatter) } catch (e: Exception) { null } }
+    }
+
+    val isToday = daysDiff == 0L
+    val isPassed = daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
+
+    // Badge only for the current calendar day
+    val badgeText = if (isToday) "TODAY" else null
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val alpha by infiniteTransition.animateFloat(
@@ -689,10 +717,7 @@ private fun DriverScheduleCard(
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = alpha)),
                     shape = MaterialTheme.shapes.medium
                 ) else Modifier
-            )
-            .clickable(enabled = selectedZone != null) {
-                selectedZone?.let { zone -> onCalculateRoute(zone.name, schedule.id) }
-            },
+            ),
         colors    = CardDefaults.cardColors(containerColor = if (isToday) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 6.dp else 2.dp)
     ) {
@@ -704,10 +729,10 @@ private fun DriverScheduleCard(
                         badgeText?.let { badge ->
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                color = MaterialTheme.colorScheme.primary,
                                 shape = MaterialTheme.shapes.small
                             ) {
-                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = if (isToday) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                             }
                         }
                     }
@@ -723,8 +748,51 @@ private fun DriverScheduleCard(
                     schedule.wasteCategories.forEach { category -> SuggestionChip(onClick = {}, label = { Text(category, style = MaterialTheme.typography.labelSmall) }) }
                 }
             }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Tap to calculate route", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Manual Enable", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("Force 'Ready' for users", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = schedule.isManuallyEnabled,
+                    onCheckedChange = { onToggleManualEnable(schedule.id, it) },
+                    thumbContent = if (schedule.isManuallyEnabled) {
+                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+                    } else null
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            val isOpen = isToday && (startTime == null || !nowTime.isBefore(startTime)) && !isPassed
+            
+            Button(
+                onClick = { selectedZone?.let { zone -> onCalculateRoute(zone.name, schedule.id) } },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = isOpen && selectedZone != null
+            ) {
+                val scheduleStart = targetDate.atTime(startTime ?: LocalTime.MIN)
+                val scheduleEnd = endTime?.let { targetDate.atTime(it) } ?: targetDate.atTime(LocalTime.MAX)
+                
+                val nextStart = if (isPassed) scheduleStart.plusWeeks(1) else scheduleStart
+                val nextEnd = if (isPassed) scheduleEnd.plusWeeks(1) else scheduleEnd
+
+                val timerText = when {
+                    isOpen -> {
+                        if (endTime != null) "Ends in ${formatDuration(Duration.between(currentDateTime, nextEnd))}"
+                        else "Calculate Route"
+                    }
+                    currentDateTime.isBefore(nextStart) -> "Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"
+                    else -> "Calculate Route"
+                }
+                
+                Text(timerText)
+            }
         }
     }
 }

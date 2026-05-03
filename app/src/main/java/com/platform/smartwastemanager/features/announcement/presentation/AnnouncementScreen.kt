@@ -97,16 +97,6 @@ fun AnnouncementScreen(
                 modifier   = Modifier.padding(top = 16.dp, bottom = 8.dp)
             )
 
-            Text(
-                text  = if (isDriverInDriverView)
-                    "Create announcements to notify all users. They will receive a push notification and the announcement will be saved here."
-                else
-                    "View important announcements from waste collection management.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-
             if (announcements.isEmpty()) {
                 Box(
                     modifier         = Modifier.fillMaxSize(),

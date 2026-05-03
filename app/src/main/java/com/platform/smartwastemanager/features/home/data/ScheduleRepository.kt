@@ -42,7 +42,8 @@ class ScheduleRepository {
                                 collectionTimeRange = doc.getString("collectionTimeRange"),
                                 linkedGuideId = doc.getString("linkedGuideId"),
                                 createdBy = doc.getString("createdBy") ?: "",
-                                updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now()
+                                updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now(),
+                                isManuallyEnabled = doc.getBoolean("isManuallyEnabled") ?: false
                             )
                         } catch (_: Exception) {
                             null
@@ -71,7 +72,8 @@ class ScheduleRepository {
                     "collectionTimeRange" to collectionDay.collectionTimeRange,
                     "linkedGuideId" to collectionDay.linkedGuideId,
                     "createdBy" to collectionDay.createdBy,
-                    "updatedAt" to Timestamp.now()
+                    "updatedAt" to Timestamp.now(),
+                    "isManuallyEnabled" to collectionDay.isManuallyEnabled
                 )
             ).await()
             Result.success(Unit)
@@ -93,9 +95,21 @@ class ScheduleRepository {
                         "wasteCategories" to collectionDay.wasteCategories,
                         "collectionTimeRange" to collectionDay.collectionTimeRange,
                         "linkedGuideId" to collectionDay.linkedGuideId,
-                        "updatedAt" to Timestamp.now()
+                        "updatedAt" to Timestamp.now(),
+                        "isManuallyEnabled" to collectionDay.isManuallyEnabled
                     )
                 ).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleManualEnable(scheduleId: String, isEnabled: Boolean): Result<Unit> {
+        return try {
+            schedulesCollection.document(scheduleId)
+                .update("isManuallyEnabled", isEnabled)
+                .await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

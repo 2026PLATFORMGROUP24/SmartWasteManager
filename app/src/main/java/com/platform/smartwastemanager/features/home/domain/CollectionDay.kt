@@ -20,7 +20,8 @@ import com.google.firebase.Timestamp
  *   collectionTimeRange: String?,        // "07:00 – 12:00" or null
  *   linkedGuideId: String?,
  *   createdBy: String,
- *   updatedAt: Timestamp
+ *   updatedAt: Timestamp,
+ *   isManuallyEnabled: Boolean           // NEW: Driver override to enable user button
  * }
  */
 data class CollectionDay(
@@ -31,5 +32,6 @@ data class CollectionDay(
     val collectionTimeRange: String? = null,
     val linkedGuideId: String? = null,
     val createdBy: String = "",
-    val updatedAt: Timestamp = Timestamp.now()
+    val updatedAt: Timestamp = Timestamp.now(),
+    val isManuallyEnabled: Boolean = false             // NEW
 )
