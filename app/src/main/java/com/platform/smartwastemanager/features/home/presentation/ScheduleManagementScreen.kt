@@ -61,8 +61,7 @@ import com.platform.smartwastemanager.features.guide.domain.RecyclingGuide
 import com.platform.smartwastemanager.features.home.domain.CollectionDay
 
 private val ALL_CATEGORIES = listOf(
-    "Recyclable", "Organic", "Paper", "Glass",
-    "Plastic", "Metal", "Hazardous", "Mixed Waste"
+    "Recyclable", "Organic", "Hazardous", "Mixed Waste"
 )
 
 private val DAYS_OF_WEEK = listOf(
@@ -320,7 +319,14 @@ private fun ScheduleDialog(
     var dayDropdownOpen by remember { mutableStateOf(false) }
 
     val selectedCategories = remember {
-        existingEntry.wasteCategories.toMutableStateList()
+        // Map legacy sub-categories (Paper, Plastic, Glass, Metal) to their new groups
+        existingEntry.wasteCategories.map { cat ->
+            when (cat) {
+                "Paper", "Plastic" -> "Recyclable"
+                "Glass", "Metal"   -> "Mixed Waste"
+                else -> cat
+            }
+        }.distinct().toMutableStateList()
     }
 
     // Parse existing time range or default to empty
@@ -439,6 +445,12 @@ private fun ScheduleDialog(
                 )
 
                 ALL_CATEGORIES.forEach { category ->
+                    val subLabel = when (category) {
+                        "Recyclable"  -> " (Paper, Plastic)"
+                        "Mixed Waste" -> " (Glass, Metal)"
+                        else -> ""
+                    }
+
                     Row(
                         modifier          = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -457,7 +469,7 @@ private fun ScheduleDialog(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text  = category,
+                            text  = category + subLabel,
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
