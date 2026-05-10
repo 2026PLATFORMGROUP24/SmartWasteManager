@@ -323,15 +323,22 @@ private fun UserScheduleCard(
     onUnmarkFromCollection: (pointId: String, scheduleDayId: String) -> Unit,
     currentDateTime: LocalDateTime
 ) {
-    val now = currentDateTime.toLocalDate()
-    val nowTime = currentDateTime.toLocalTime()
+    // Always use South African time for all schedule logic
+    val saZoneId = java.time.ZoneId.of("Africa/Johannesburg")
+    val saDateTime = currentDateTime.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(saZoneId).toLocalDateTime()
+    val now = saDateTime.toLocalDate()
+    val nowTime = saDateTime.toLocalTime()
     val scheduleDay = remember(schedule.dayOfWeek) { schedule.dayOfWeek.toDayOfWeekLocal() }
     
     // Anchor to the current week (starting Monday) to correctly identify "previous" or "upcoming" days
     val targetDate = remember(scheduleDay, now) {
         scheduleDay?.let {
-            val monday = now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-            monday.plusDays((it.value - 1).toLong())
+            val todayDow = now.dayOfWeek
+            if (todayDow == it) {
+                now
+            } else {
+                now.with(TemporalAdjusters.next(it))
+            }
         }
     }
 
@@ -362,7 +369,7 @@ private fun UserScheduleCard(
     val isEnabled = schedule.isManuallyEnabled || when {
         isPassed -> false
         isToday -> true
-        daysDiff == 1L -> nowTime.hour >= 16
+        daysDiff == 1L -> nowTime.hour > 16 || (nowTime.hour == 16 && nowTime.minute >= 0)
         else -> false
     }
 
@@ -472,14 +479,15 @@ private fun UserScheduleCard(
                         val buttonText = if (isEnabled) {
                             "Ready for Collection"
                         } else {
-                            // Find the next open date-time
+                            // Find the next open date-time in South African time
                             val baseOpenDateTime = targetDate.minusDays(1).atTime(16, 0)
                             val nextOpenDateTime = if (isPassed) {
                                 baseOpenDateTime.plusWeeks(1)
                             } else {
                                 baseOpenDateTime
                             }
-                            val duration = Duration.between(currentDateTime, nextOpenDateTime)
+                            var duration = Duration.between(saDateTime, nextOpenDateTime)
+                            if (duration.isNegative) duration = Duration.ZERO
                             "Opens in ${formatDuration(duration)}"
                         }
 
@@ -781,24 +789,25 @@ private fun DriverScheduleCard(
 
             Spacer(modifier = Modifier.height(12.dp))
             
-            val isOpen = isToday && (startTime == null || !nowTime.isBefore(startTime)) && !isPassed
-            
-            Button(
-                onClick = { selectedZone?.let { zone -> onCalculateRoute(zone.name, schedule.id) } },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = isOpen && selectedZone != null
-            ) {
-                val scheduleStart = targetDate.atTime(startTime ?: LocalTime.MIN)
-                val nextStart = if (isPassed) scheduleStart.plusWeeks(1) else scheduleStart
+                    val isOpen = isToday && (startTime == null || !nowTime.isBefore(startTime)) && !isPassed
+                    val isEnded = isToday && endTime != null && nowTime.isAfter(endTime)
 
-                val timerText = when {
-                    isOpen -> "Calculate Route"
-                    currentDateTime.isBefore(nextStart) -> "Schedule Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"
-                    else -> "Calculate Route"
-                }
-                
-                Text(timerText)
-            }
+                    Button(
+                        onClick = { selectedZone?.let { zone -> onCalculateRoute(zone.name, schedule.id) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = isOpen && selectedZone != null
+                    ) {
+                        val scheduleStart = targetDate.atTime(startTime ?: LocalTime.MIN)
+                        val nextStart = if (isPassed) scheduleStart.plusWeeks(1) else scheduleStart
+
+                        val timerText = when {
+                            isOpen -> "Calculate Route"
+                            isEnded -> "Schedule Ended"
+                            currentDateTime.isBefore(nextStart) -> "Schedule Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"
+                            else -> "Schedule Ended"
+                        }
+                        Text(timerText)
+                    }
         }
     }
 }
