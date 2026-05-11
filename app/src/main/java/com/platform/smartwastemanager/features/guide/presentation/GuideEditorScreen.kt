@@ -406,7 +406,17 @@ fun GuideEditorScreen(
                         value = externalUrl,
                         onValueChange = { externalUrl = it.trim() },
                         label = { Text("YouTube Video ID") },
-                        supportingText = { Text("Enter only the video ID (11 characters)") },
+                        supportingText = {
+                            Column {
+                                Text("Enter only the video ID (11 characters)")
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "To get the YouTube video ID, copy the characters after 'v=' in the video URL. For example, in https://youtube.com/watch?v=abc123XYZ78, the ID is abc123XYZ78.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         isError = externalUrl.isNotBlank() && !isYoutubeValid
                     )

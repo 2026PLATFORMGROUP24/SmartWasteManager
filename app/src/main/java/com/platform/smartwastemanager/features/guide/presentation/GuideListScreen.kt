@@ -338,24 +338,16 @@ private fun GuideListCard(
                     )
                     
                     // Preview text: only shown for Markdown (video id text removed for YouTube)
-                    val preview = remember(guide.contentMarkdown, guide.getContentType()) {
-                        if (guide.getContentType() == GuideContentType.MARKDOWN) {
-                            guide.contentMarkdown
-                                .lines()
+                    if (guide.getContentType() == GuideContentType.MARKDOWN && guide.contentMarkdown.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        dev.jeziellago.compose.markdowntext.MarkdownText(
+                            markdown = guide.contentMarkdown.lines()
                                 .filter { line -> line.isNotBlank() && !line.startsWith("#") }
                                 .joinToString(" ")
-                                .take(130)
-                        } else ""
-                    }
-                    
-                    if (preview.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text     = preview,
-                            style    = MaterialTheme.typography.bodySmall,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                .take(130),
+                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                             maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
