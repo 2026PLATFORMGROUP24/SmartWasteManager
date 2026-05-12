@@ -522,6 +522,13 @@ class MapRepository {
             .await()
     }
 
+    suspend fun markScheduleDayAsCompleted(scheduleDayId: String) {
+        if (scheduleDayId.isBlank()) return
+        firestore.collection(Constants.COLLECTION_SCHEDULES).document(scheduleDayId)
+            .update("isRouteCompleted", true)
+            .await()
+    }
+
     private fun haversineDistanceMeters(
         lat1: Double, lng1: Double, lat2: Double, lng2: Double
     ): Double {

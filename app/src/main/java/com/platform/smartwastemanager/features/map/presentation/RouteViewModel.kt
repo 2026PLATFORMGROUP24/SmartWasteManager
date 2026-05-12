@@ -272,6 +272,7 @@ class RouteViewModel(
                 val nextIndex = inProgress.currentStopIndex + 1
 
                 if (nextIndex >= updatedStops.size) {
+                    mapRepository.markScheduleDayAsCompleted(currentScheduleDayId)
                     _activeRouteState.value = ActiveRouteUiState.Completed
                 } else {
                     val remainingStops = updatedStops.drop(nextIndex).filterNot { it.isCollected }

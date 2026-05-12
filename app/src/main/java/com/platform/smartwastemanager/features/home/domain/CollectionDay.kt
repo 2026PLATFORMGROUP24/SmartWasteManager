@@ -21,7 +21,8 @@ import com.google.firebase.Timestamp
  *   linkedGuideId: String?,
  *   createdBy: String,
  *   updatedAt: Timestamp,
- *   isManuallyEnabled: Boolean           // NEW: Driver override to enable user button
+ *   isManuallyEnabled: Boolean,          // NEW: Driver override to enable user button
+ *   isRouteCompleted: Boolean            // NEW: True if the driver completed the route for this day
  * }
  */
 data class CollectionDay(
@@ -33,5 +34,6 @@ data class CollectionDay(
     val linkedGuideId: String? = null,
     val createdBy: String = "",
     val updatedAt: Timestamp = Timestamp.now(),
-    val isManuallyEnabled: Boolean = false             // NEW
+    val isManuallyEnabled: Boolean = false,            // NEW
+    val isRouteCompleted: Boolean = false              // NEW
 )

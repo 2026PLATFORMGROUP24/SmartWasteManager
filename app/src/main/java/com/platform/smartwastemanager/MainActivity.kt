@@ -1,21 +1,22 @@
 package com.platform.smartwastemanager
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,24 +27,18 @@ import androidx.navigation.compose.rememberNavController
 import com.platform.smartwastemanager.core.navigation.AppNavHost
 import com.platform.smartwastemanager.core.navigation.BottomNavItem
 import com.platform.smartwastemanager.core.navigation.Routes
-import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
+import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
 import com.platform.smartwastemanager.features.auth.domain.UserRole
 import com.platform.smartwastemanager.features.auth.presentation.AuthViewModel
+import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
 import com.platform.smartwastemanager.features.guide.presentation.GuideViewModel
 import com.platform.smartwastemanager.features.home.presentation.HomeViewModel
 import com.platform.smartwastemanager.features.map.presentation.MapViewModel
 import com.platform.smartwastemanager.features.map.presentation.RouteViewModel
 import com.platform.smartwastemanager.features.notifications.presentation.NotificationViewModel
 import com.platform.smartwastemanager.features.report.presentation.ReportViewModel
-import com.platform.smartwastemanager.features.collectionpoint.presentation.CollectionPointViewModel
-import com.platform.smartwastemanager.features.announcement.presentation.AnnouncementViewModel
+import com.platform.smartwastemanager.core.theme.SmartWasteManagerTheme
 import com.platform.smartwastemanager.features.askai.presentation.AskAiViewModel
-import android.Manifest
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.AutoAwesome
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,7 +63,7 @@ fun SmartWasteManagerAppContent() {
     val currentDestination = navBackStackEntry?.destination
 
     // =========================================================================
-    // ViewModels — created ONCE here at Activity level (Rule 3).
+    // ViewModels — created ONCE here at Activity level.
     // =========================================================================
 
     val authViewModel: AuthViewModel = viewModel(
@@ -125,7 +120,7 @@ fun SmartWasteManagerAppContent() {
     )
 
     // =========================================================================
-    // onAuthSuccess — called after login, signup, AND session restore (Rule 5).
+    // onAuthSuccess — called after login, signup, AND session restore.
     // =========================================================================
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -232,7 +227,6 @@ fun SmartWasteManagerAppContent() {
                             }
                         },
                         actions = {
-                            // ---- ASK AI BUTTON (TOP RIGHT) ----
                             if (currentDestination?.route != Routes.ASK_AI) {
                                 IconButton(onClick = {
                                     askAiViewModel.reset()
@@ -319,29 +313,30 @@ fun SmartWasteManagerAppContent() {
         bottomBar = {
             if (!isOnAuthScreen) {
                 NavigationBar {
-                    BottomNavItem.all.forEach { item ->
-                        val isReportDisabled = isDriver && isDriverViewActive && item.route == Routes.REPORT
+                    val filteredItems = BottomNavItem.all.filter { item ->
+                        when (item.route) {
+                            Routes.REPORT -> !(isDriver && isDriverViewActive)
+                            Routes.MAP -> (isDriver && isDriverViewActive)
+                            else -> true
+                        }
+                    }
+                    filteredItems.forEach { item ->
                         NavigationBarItem(
                             icon     = { Icon(item.icon, contentDescription = item.label) },
                             label    = { Text(item.label) },
                             selected = currentDestination?.hierarchy?.any {
                                 it.route == item.route
                             } == true,
-                            enabled = !isReportDisabled,
                             onClick  = {
-                                if (!isReportDisabled) {
-                                    // If ASK_AI is on top of the back stack, pop it first so
-                                    // it doesn't get saved as part of the tab's back-state.
-                                    if (navController.currentDestination?.route == Routes.ASK_AI) {
-                                        navController.popBackStack()
+                                if (navController.currentDestination?.route == Routes.ASK_AI) {
+                                    navController.popBackStack()
+                                }
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
                                     }
-                                    navController.navigate(item.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState    = true
-                                    }
+                                    launchSingleTop = true
+                                    restoreState    = true
                                 }
                             }
                         )

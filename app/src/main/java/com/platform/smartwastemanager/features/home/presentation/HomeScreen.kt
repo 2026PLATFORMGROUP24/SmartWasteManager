@@ -358,20 +358,20 @@ private fun UserScheduleCard(
         timeRangeParts?.getOrNull(1)?.let { try { LocalTime.parse(it, timeFormatter) } catch (e: Exception) { null } }
     }
 
-    // A day is passed if it was before today, or it's today and the end time has passed
+    // A day is passed if it was before today, or it's today and the end time has passed, or marked completed
     val isToday = daysDiff == 0L
-    val isPassed = daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
+    val isPassed = schedule.isRouteCompleted || daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
 
     // Logic for enabling "Ready for Collection":
     // - Enabled if it is TODAY (and not passed)
     // - Enabled for TOMORROW (daysDiff == 1) if current time is after 4 PM today
     // - MANUALLY ENABLED by driver
-    val isEnabled = schedule.isManuallyEnabled || when {
+    val isEnabled = !schedule.isRouteCompleted && (schedule.isManuallyEnabled || when {
         isPassed -> false
         isToday -> true
         daysDiff == 1L -> nowTime.hour > 16 || (nowTime.hour == 16 && nowTime.minute >= 0)
         else -> false
-    }
+    })
 
     val isMarked = selectedPoint?.markedForCollectionDays?.contains(schedule.id) == true
 
@@ -393,7 +393,7 @@ private fun UserScheduleCard(
         modifier  = Modifier
             .fillMaxWidth()
             .then(
-                if (isToday) Modifier.border(
+                if (isToday && !schedule.isRouteCompleted) Modifier.border(
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
                     shape = MaterialTheme.shapes.medium
                 ) else Modifier
@@ -403,13 +403,14 @@ private fun UserScheduleCard(
             },
         colors    = CardDefaults.cardColors(
             containerColor = when {
+                schedule.isRouteCompleted -> MaterialTheme.colorScheme.errorContainer
                 isToday && isMarked -> MaterialTheme.colorScheme.primaryContainer
                 isToday -> MaterialTheme.colorScheme.tertiaryContainer
                 isMarked -> Color(0xFF4CAF50).copy(alpha = 0.15f)
                 else -> MaterialTheme.colorScheme.secondaryContainer
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 6.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday && !schedule.isRouteCompleted) 6.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -419,10 +420,10 @@ private fun UserScheduleCard(
                         badgeText?.let { badge ->
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                 shape = MaterialTheme.shapes.small
                             ) {
-                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                             }
                         }
                     }
@@ -434,11 +435,13 @@ private fun UserScheduleCard(
             }
 
             // Display timer if enabled and start/end times are available
-            if (isEnabled && startTime != null) {
+            if (startTime != null) {
                 val scheduleStart = targetDate.atTime(startTime)
                 val scheduleEnd = endTime?.let { targetDate.atTime(it) }
                 
                 val timerText = when {
+                    schedule.isRouteCompleted -> "Collection ended"
+                    !isEnabled -> null
                     currentDateTime.isBefore(scheduleStart) -> {
                         val duration = Duration.between(currentDateTime, scheduleStart)
                         "Starts in ${formatDuration(duration)}"
@@ -453,9 +456,19 @@ private fun UserScheduleCard(
                 timerText?.let {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Timer, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = if (schedule.isRouteCompleted) Icons.Default.EventBusy else Icons.Default.Timer,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -476,19 +489,21 @@ private fun UserScheduleCard(
                             enabled = !isPassed || schedule.isManuallyEnabled
                         ) { Text("Unmark") }
                     } else {
-                        val buttonText = if (isEnabled) {
-                            "Ready for Collection"
-                        } else {
-                            // Find the next open date-time in South African time
-                            val baseOpenDateTime = targetDate.minusDays(1).atTime(16, 0)
-                            val nextOpenDateTime = if (isPassed) {
-                                baseOpenDateTime.plusWeeks(1)
-                            } else {
-                                baseOpenDateTime
+                        val buttonText = when {
+                            schedule.isRouteCompleted -> "Collection Ended"
+                            isEnabled -> "Ready for Collection"
+                            else -> {
+                                // Find the next open date-time in South African time
+                                val baseOpenDateTime = targetDate.minusDays(1).atTime(16, 0)
+                                val nextOpenDateTime = if (isPassed) {
+                                    baseOpenDateTime.plusWeeks(1)
+                                } else {
+                                    baseOpenDateTime
+                                }
+                                var duration = Duration.between(saDateTime, nextOpenDateTime)
+                                if (duration.isNegative) duration = Duration.ZERO
+                                "Opens in ${formatDuration(duration)}"
                             }
-                            var duration = Duration.between(saDateTime, nextOpenDateTime)
-                            if (duration.isNegative) duration = Duration.ZERO
-                            "Opens in ${formatDuration(duration)}"
                         }
 
                         Button(
@@ -701,7 +716,7 @@ private fun DriverScheduleCard(
     }
 
     val isToday = daysDiff == 0L
-    val isPassed = daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
+    val isPassed = schedule.isRouteCompleted || daysDiff < 0 || (isToday && endTime != null && nowTime.isAfter(endTime))
 
     // Badge only for the current calendar day
     val badgeText = if (isToday) "TODAY" else null
@@ -721,13 +736,19 @@ private fun DriverScheduleCard(
         modifier  = Modifier
             .fillMaxWidth()
             .then(
-                if (isToday) Modifier.border(
+                if (isToday && !schedule.isRouteCompleted) Modifier.border(
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = alpha)),
                     shape = MaterialTheme.shapes.medium
                 ) else Modifier
             ),
-        colors    = CardDefaults.cardColors(containerColor = if (isToday) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday) 6.dp else 2.dp)
+        colors    = CardDefaults.cardColors(
+            containerColor = when {
+                schedule.isRouteCompleted -> MaterialTheme.colorScheme.errorContainer
+                isToday -> MaterialTheme.colorScheme.tertiaryContainer
+                else -> MaterialTheme.colorScheme.secondaryContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isToday && !schedule.isRouteCompleted) 6.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -737,10 +758,10 @@ private fun DriverScheduleCard(
                         badgeText?.let { badge ->
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                 shape = MaterialTheme.shapes.small
                             ) {
-                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                Text(text = badge, style = MaterialTheme.typography.labelSmall, color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                             }
                         }
                     }
@@ -748,15 +769,33 @@ private fun DriverScheduleCard(
                         Text("🕐 ${schedule.collectionTimeRange}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
                     }
 
-                    // Show "Ends in" timer when schedule has started
-                    val isScheduleStarted = isToday && startTime != null && !nowTime.isBefore(startTime) && !isPassed
-                    if (isScheduleStarted && endTime != null) {
-                        val scheduleEnd = targetDate.atTime(endTime)
-                        val duration = Duration.between(currentDateTime, scheduleEnd)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                            Icon(Icons.Default.Timer, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Ends in ${formatDuration(duration)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    // Show "Ends in" or "Collection ended" timer
+                    if (startTime != null) {
+                        val scheduleEnd = endTime?.let { targetDate.atTime(it) }
+                        val isScheduleStarted = isToday && !nowTime.isBefore(startTime) && !isPassed
+                        
+                        val timerText = when {
+                            schedule.isRouteCompleted -> "Collection ended"
+                            isScheduleStarted && scheduleEnd != null -> "Ends in ${formatDuration(Duration.between(currentDateTime, scheduleEnd))}"
+                            else -> null
+                        }
+
+                        timerText?.let {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                Icon(
+                                    imageVector = if (schedule.isRouteCompleted) Icons.Default.EventBusy else Icons.Default.Timer,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = it,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (schedule.isRouteCompleted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
@@ -783,24 +822,27 @@ private fun DriverScheduleCard(
                     onCheckedChange = { onToggleManualEnable(schedule.id, it) },
                     thumbContent = if (schedule.isManuallyEnabled) {
                         { Icon(Icons.Default.Check, null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
-                    } else null
+                    } else null,
+                    enabled = !schedule.isRouteCompleted
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
             
                     val isOpen = isToday && (startTime == null || !nowTime.isBefore(startTime)) && !isPassed
-                    val isEnded = isToday && endTime != null && nowTime.isAfter(endTime)
+                    val isEnded = schedule.isRouteCompleted || (isToday && endTime != null && nowTime.isAfter(endTime))
 
                     Button(
                         onClick = { selectedZone?.let { zone -> onCalculateRoute(zone.name, schedule.id) } },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = isOpen && selectedZone != null
+                        enabled = isOpen && selectedZone != null && !schedule.isRouteCompleted,
+                        colors = if (schedule.isRouteCompleted) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()
                     ) {
                         val scheduleStart = targetDate.atTime(startTime ?: LocalTime.MIN)
-                        val nextStart = if (isPassed) scheduleStart.plusWeeks(1) else scheduleStart
+                        val nextStart = if (isPassed && !schedule.isRouteCompleted) scheduleStart.plusWeeks(1) else scheduleStart
 
                         val timerText = when {
+                            schedule.isRouteCompleted -> "Collection Ended"
                             isOpen -> "Calculate Route"
                             isEnded -> "Schedule Ended"
                             currentDateTime.isBefore(nextStart) -> "Schedule Starts in ${formatDuration(Duration.between(currentDateTime, nextStart))}"

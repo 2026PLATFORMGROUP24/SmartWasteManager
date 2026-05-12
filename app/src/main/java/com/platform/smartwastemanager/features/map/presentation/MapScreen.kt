@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -156,7 +157,12 @@ fun MapScreen(
                         val pins = (uiState as MapUiState.Success).pins
                         pins.forEach { pin ->
                             key(pin.reportId) {
-                                MapPinMarker(pin = pin, dateFormat = dateFormat)
+                                MapPinMarker(
+                                    pin = pin,
+                                    dateFormat = dateFormat,
+                                    isDriver = isDriverInDriverView,
+                                    onDismiss = { viewModel.dismissPin(pin.reportId) }
+                                )
                             }
                         }
                     }
@@ -605,13 +611,15 @@ private fun ZoneOverlay(zone: Zone) {
 }
 
 // =====================================================================
-// MapPinMarker — waste-report pin (no dismiss mode)
+// MapPinMarker — waste-report pin
 // =====================================================================
 
 @Composable
 private fun MapPinMarker(
     pin: MapPin,
-    dateFormat: java.text.SimpleDateFormat
+    dateFormat: java.text.SimpleDateFormat,
+    isDriver: Boolean = false,
+    onDismiss: () -> Unit = {}
 ) {
     val position      = LatLng(pin.location.latitude, pin.location.longitude)
     val formattedTime = remember(pin.timestamp) { dateFormat.format(pin.timestamp.toDate()) }
@@ -623,9 +631,11 @@ private fun MapPinMarker(
 
     MarkerInfoWindowContent(
         state   = rememberMarkerState(position = position),
-        title   = pin.category,
-        snippet = "${pin.streetName}\n$formattedTime",
-        icon    = BitmapDescriptorFactory.defaultMarker(markerHue)
+        icon    = BitmapDescriptorFactory.defaultMarker(markerHue),
+        // Entire info window is clickable for drivers
+        onInfoWindowClick = {
+            if (isDriver) onDismiss()
+        }
     ) { _ ->
         Column(modifier = Modifier.padding(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -649,6 +659,24 @@ private fun MapPinMarker(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("🕐 $formattedTime", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            if (isDriver) {
+                Spacer(modifier = Modifier.height(8.dp))
+                // Visual surface to indicate the action
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        "TAP WINDOW TO COLLECT",
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
         }
     }
 }

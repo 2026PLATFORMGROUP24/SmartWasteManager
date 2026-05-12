@@ -74,6 +74,17 @@ class MapViewModel(
         }
     }
 
+    fun dismissPin(reportId: String) {
+        viewModelScope.launch {
+            try {
+                mapRepository.dismissReport(reportId)
+                // The real-time listener in loadPins() will pick up the deletion
+            } catch (e: Exception) {
+                // Error handling handled by UI via repository if needed
+            }
+        }
+    }
+
     fun loadDriverZones(driverUid: String) {
         zonesJob?.cancel()
         if (driverUid.isBlank()) { _driverZones.value = emptyList(); return }

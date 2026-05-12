@@ -43,7 +43,8 @@ class ScheduleRepository {
                                 linkedGuideId = doc.getString("linkedGuideId"),
                                 createdBy = doc.getString("createdBy") ?: "",
                                 updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now(),
-                                isManuallyEnabled = doc.getBoolean("isManuallyEnabled") ?: false
+                                isManuallyEnabled = doc.getBoolean("isManuallyEnabled") ?: false,
+                                isRouteCompleted = doc.getBoolean("isRouteCompleted") ?: false
                             )
                         } catch (_: Exception) {
                             null
@@ -73,7 +74,8 @@ class ScheduleRepository {
                     "linkedGuideId" to collectionDay.linkedGuideId,
                     "createdBy" to collectionDay.createdBy,
                     "updatedAt" to Timestamp.now(),
-                    "isManuallyEnabled" to collectionDay.isManuallyEnabled
+                    "isManuallyEnabled" to collectionDay.isManuallyEnabled,
+                    "isRouteCompleted" to collectionDay.isRouteCompleted
                 )
             ).await()
             Result.success(Unit)
@@ -96,7 +98,8 @@ class ScheduleRepository {
                         "collectionTimeRange" to collectionDay.collectionTimeRange,
                         "linkedGuideId" to collectionDay.linkedGuideId,
                         "updatedAt" to Timestamp.now(),
-                        "isManuallyEnabled" to collectionDay.isManuallyEnabled
+                        "isManuallyEnabled" to collectionDay.isManuallyEnabled,
+                        "isRouteCompleted" to collectionDay.isRouteCompleted
                     )
                 ).await()
             Result.success(Unit)
