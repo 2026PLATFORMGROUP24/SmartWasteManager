@@ -233,7 +233,10 @@ fun ManageZonesScreen(
                                         zone          = zone,
                                         isCreatedByMe = zone.createdBy == currentDriverUid,
                                         isSelected    = zone.id == selectedZone?.id,
-                                        onSelectClick = { onSelectZone(zone) },
+                                        onSelectClick = { 
+                                            onSelectZone(zone)
+                                            onNavigateBack() // Auto-navigate back when a zone is picked
+                                        },
                                         onDeleteClick = { zoneToDelete = zone }
                                     )
                                 }

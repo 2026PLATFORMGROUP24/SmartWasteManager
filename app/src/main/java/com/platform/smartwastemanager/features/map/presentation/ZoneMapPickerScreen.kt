@@ -94,10 +94,9 @@ fun ZoneMapPickerScreen(
     LaunchedEffect(actionState) {
         when (actionState) {
             is RouteActionState.Success -> {
-                snackbarHostState.showSnackbar(
-                    (actionState as RouteActionState.Success).message
-                )
-                viewModel.resetActionState()
+                // We navigate back immediately. 
+                // ManageZonesScreen (the previous screen) also observes this viewModel 
+                // and will show the success snackbar itself.
                 onNavigateBack()
             }
             is RouteActionState.Error -> {
